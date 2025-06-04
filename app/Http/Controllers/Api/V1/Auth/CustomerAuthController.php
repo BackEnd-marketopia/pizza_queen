@@ -10,6 +10,7 @@ use App\Model\BusinessSetting;
 use App\Model\EmailVerifications;
 use App\Model\PhoneVerification;
 use App\Models\LoginSetup;
+use App\Services\OtpService;
 use App\User;
 use Firebase\JWT\JWT;
 use GuzzleHttp\Exception\GuzzleException;
@@ -27,12 +28,16 @@ use Modules\Gateways\Traits\SmsGateway;
 
 class CustomerAuthController extends Controller
 {
+    protected $otpService;
     public function __construct(
         private User              $user,
         private BusinessSetting   $businessSetting,
         private PhoneVerification $phoneVerification,
-        private LoginSetup $loginSetup
-    ) {}
+        private LoginSetup $loginSetup,
+        OtpService $otpService
+    ) {
+        $this->otpService = $otpService;
+    }
 
     /**
      * @param Request $request
@@ -119,6 +124,12 @@ class CustomerAuthController extends Controller
                     'errors' => $errors
                 ], 403);
             }
+            $otp = $this->otpService->generateAndSend($request->phone);
+
+            if (!$otp['success'])
+                return response()->json([
+                    'errors' => 'otp failed'
+                ], 403);
 
             $token = (env('APP_MODE') == 'live') ? rand(100000, 999999) : 123456;
 
@@ -232,7 +243,8 @@ class CustomerAuthController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'phone' => 'required',
-            'token' => 'required'
+            'token' => 'required',
+            'code'  => 'required',
         ]);
 
         if ($validator->fails()) {
@@ -243,9 +255,8 @@ class CustomerAuthController extends Controller
         $maxOTPHitTime = Helpers::get_business_settings('otp_resend_time') ?? 60; // seconds
         $tempBlockTime = Helpers::get_business_settings('temporary_block_time') ?? 600; // seconds
 
-        // $verify = $this->phoneVerification->where(['phone' => $request['phone'], 'token' => $request['token']])->first();
-        $verify = 123456;
-        if (isset($verify) && $verify == 123456) {
+        $result = $this->otpService->verify($request->phone, $request->code);
+        if ($result) {
             // if (isset($verify->temp_block_time) && Carbon::parse($verify->temp_block_time)->DiffInSeconds() <= $tempBlockTime) {
             //     $time = $tempBlockTime - Carbon::parse($verify->temp_block_time)->DiffInSeconds();
 

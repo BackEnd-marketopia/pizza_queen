@@ -2755,4 +2755,7 @@
   'last_name_required' => 'Last name required',
   'first_name_required' => 'First name required',
   'Customer not found!' => 'Customer not found!',
+  'Token found, you can proceed' => 'Token found, you can proceed',
+  'Invalid token.' => 'Invalid token.',
+  'Password changed successfully.' => 'Password changed successfully.',
 );
