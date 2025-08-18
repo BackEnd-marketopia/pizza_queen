@@ -986,6 +986,7 @@ class ProductController extends Controller
         $newProduct = $product->replicate();
         $newProduct->name = $product->name . ' (Copy)';
         $newProduct->status = 0;
+        $newProduct->image = null;
         $newProduct->save();
 
         $newProduct->tags()->sync($product->tags->pluck('id')->toArray());

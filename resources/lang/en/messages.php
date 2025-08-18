@@ -2749,13 +2749,11 @@
   'Notification updated successfully!' => 'Notification updated successfully!',
   'OTP is not matched.' => 'OTP is not matched.',
   'Too_many_attempts' => 'Too many attempts',
-  'For configuring OTP in the Firebase, you must create a Firebase project first.
-                        If you haven’t created any project for your application yet, please create a project first.' => 'For configuring OTP in the Firebase, you must create a Firebase project first.
-                        If you haven’t created any project for your application yet, please create a project first.',
   'last_name_required' => 'Last name required',
   'first_name_required' => 'First name required',
   'Customer not found!' => 'Customer not found!',
   'Token found, you can proceed' => 'Token found, you can proceed',
   'Invalid token.' => 'Invalid token.',
   'Password changed successfully.' => 'Password changed successfully.',
+  'successfully removed!' => 'Successfully removed!',
 );

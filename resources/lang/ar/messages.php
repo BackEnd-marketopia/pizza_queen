@@ -2671,4 +2671,10 @@
   'Add menu' => 'اضافة قائمة طعام',
   'messages.Add New Menu' => 'Messages.Add New Menu',
   'messages.Menu Image' => 'Messages.Menu Image',
+  'Not Selected' => 'Not Selected',
+  ' Inactive Deliveryman' => ' Inactive Deliveryman',
+  'Remove subcategories first!' => 'Remove subcategories first!',
+  'Sub Category removed!' => 'Sub Category removed!',
+  'Addon removed!' => 'Addon removed!',
+  'Addon updated successfully!' => 'Addon updated successfully!',
 );
