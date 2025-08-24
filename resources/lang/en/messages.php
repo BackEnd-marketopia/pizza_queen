@@ -2756,4 +2756,5 @@
   'Invalid token.' => 'Invalid token.',
   'Password changed successfully.' => 'Password changed successfully.',
   'successfully removed!' => 'Successfully removed!',
+  'coupon_not_found' => 'Coupon not found',
 );
