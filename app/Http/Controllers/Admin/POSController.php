@@ -133,7 +133,15 @@ class POSController extends Controller
             if (isset($product->branch_products) && count($product->branch_products) > 0) {
                 foreach ($product->branch_products as $branch_product) {
                     try {
-                        $branch_product->variations = $branch_product->variations ? json_decode($branch_product->variations, true) : [];
+                        // Check if variations is already an array or needs decoding
+                        if (is_string($branch_product->variations)) {
+                            $branch_product->variations = $branch_product->variations ? json_decode($branch_product->variations, true) : [];
+                        } elseif (is_array($branch_product->variations)) {
+                            // Already an array, keep as is
+                            $branch_product->variations = $branch_product->variations;
+                        } else {
+                            $branch_product->variations = [];
+                        }
                     } catch (\Exception $e) {
                         $branch_product->variations = [];
                     }
@@ -141,7 +149,15 @@ class POSController extends Controller
             } else {
                 // If no branch-specific data, decode the product's own variations for display
                 try {
-                    $product->variations = $product->variations ? json_decode($product->variations, true) : [];
+                    // Check if variations is already an array or needs decoding
+                    if (is_string($product->variations)) {
+                        $product->variations = $product->variations ? json_decode($product->variations, true) : [];
+                    } elseif (is_array($product->variations)) {
+                        // Already an array, keep as is
+                        $product->variations = $product->variations;
+                    } else {
+                        $product->variations = [];
+                    }
                 } catch (\Exception $e) {
                     $product->variations = [];
                 }

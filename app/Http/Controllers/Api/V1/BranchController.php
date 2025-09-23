@@ -62,7 +62,10 @@ class BranchController extends Controller
                       // Selected branches that include current branch
                       ->orWhere(function ($subQ) use ($branchId) {
                           $subQ->where('distribution_type', 'selected_branches')
-                               ->where('branch_ids', 'like', '%"' . $branchId . '"%');
+                               ->where(function ($jsonQuery) use ($branchId) {
+                                   $jsonQuery->whereJsonContains('branch_ids', $branchId)
+                                            ->orWhereJsonContains('branch_ids', (string)$branchId);
+                               });
                       })
                       // Main branch only and current branch is main
                       ->orWhere(function ($subQ) use ($branchId) {

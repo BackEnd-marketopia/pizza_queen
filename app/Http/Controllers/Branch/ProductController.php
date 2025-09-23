@@ -69,7 +69,10 @@ class ProductController extends Controller
                       // Selected branches that include current branch
                       ->orWhere(function ($subQ) use ($currentBranchId) {
                           $subQ->where('distribution_type', 'selected_branches')
-                               ->where('branch_ids', 'like', '%"' . $currentBranchId . '"%');
+                               ->where(function ($jsonQuery) use ($currentBranchId) {
+                                   $jsonQuery->whereJsonContains('branch_ids', $currentBranchId)
+                                            ->orWhereJsonContains('branch_ids', (string)$currentBranchId);
+                               });
                       })
                       // Main branch only and current branch is main
                       ->orWhere(function ($subQ) use ($currentBranchId) {

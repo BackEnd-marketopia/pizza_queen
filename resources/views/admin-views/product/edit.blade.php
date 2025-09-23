@@ -347,7 +347,7 @@
                                         </div>
                                         <div class="card-body">
                                             <div class="form-group">
-                                                <input type="checkbox" name="can_free" value="1" {{$product->can_free == 1 ? 'checked' : ''}}>&nbsp; <label class="input-label"
+                                                <input type="checkbox" id="can_free" name="can_free" value="1" {{$product->can_free == 1 ? 'checked' : ''}}>&nbsp; <label class="input-label"
                                                    style="display: inline">{{translate('This product Can Be Free?')}}</label>
                                                 <br><br>
                                                 <input type="checkbox"id="has_free" name="has_free" value="1" {{$product->has_free == 1 ? 'checked' : ''}}>&nbsp; <label class="input-label"

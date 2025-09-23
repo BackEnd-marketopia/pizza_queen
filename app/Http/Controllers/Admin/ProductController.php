@@ -307,8 +307,8 @@ class ProductController extends Controller
         $product->product_type = $request->product_type;
         $product->image = Helpers::upload('product/', 'png', $request->file('image'));
 
-        $product->can_free = $request->can_free ? 1 : 0;
-        $product->has_free = $request->has_free ? 1 : 0;
+        $product->can_free = ($request->has('can_free') && $request->can_free == 1) ? 1 : 0;
+        $product->has_free = ($request->has('has_free') && $request->has_free == 1) ? 1 : 0;
 
         $product->available_date_starts = $request->available_date_starts ?? null;
         $product->available_date_ends = $request->available_date_ends ?? null;
@@ -605,8 +605,8 @@ class ProductController extends Controller
         $product->product_type = $request->product_type;
         $product->image = $request->has('image') ? Helpers::update('product/', $product->image, 'png', $request->file('image')) : $product->image;
 
-        $product->can_free = $request->can_free ? 1 : 0;
-        $product->has_free = $request->has_free ? 1 : 0;
+        $product->can_free = ($request->has('can_free') && $request->can_free == 1) ? 1 : 0;
+        $product->has_free = ($request->has('has_free') && $request->has_free == 1) ? 1 : 0;
 
         $product->available_date_starts = $request->available_date_starts ?? null;
         $product->available_date_ends = $request->available_date_ends ?? null;
