@@ -239,6 +239,27 @@ class OrderController extends Controller
                     ];
                 }
 
+                // Handle free products - set base price to 0 but keep variations and add-ons
+                if (isset($c['is_free']) && $c['is_free']) {
+                    if ($branch_product) {
+                        $branch_product_variations = $branch_product->variations;
+                        if (count($branch_product_variations)) {
+                            $variation_data = Helpers::get_varient($branch_product_variations, $c['variations']);
+                            $price = 0 + $variation_data['price']; // Base price = 0, keep variation price
+                        } else {
+                            $price = 0; // Base price = 0
+                        }
+                    } else {
+                        $product_variations = json_decode($product->variations, true);
+                        if (count($product_variations)) {
+                            $variation_data = Helpers::get_varient($product_variations, $c['variations']);
+                            $price = 0 + $variation_data['price']; // Base price = 0, keep variation price
+                        } else {
+                            $price = 0; // Base price = 0
+                        }
+                    }
+                }
+
                 $discount_on_product = Helpers::discount_calculate($discount_data, $price);
 
                 /*calculation for addon and addon tax start*/
@@ -280,6 +301,8 @@ class OrderController extends Controller
                     'add_on_prices' => json_encode($add_on_prices),
                     'add_on_taxes' => json_encode($add_on_taxes),
                     'add_on_tax_amount' => $total_addon_tax,
+                    'is_free' => isset($c['is_free']) && $c['is_free'] ? true : false,
+                    'free_for_product_id' => isset($c['free_for_product_id']) ? (int)$c['free_for_product_id'] : null,
                     'created_at' => now('Africa/Cairo'),
                     'updated_at' => now('Africa/Cairo')
                 ];

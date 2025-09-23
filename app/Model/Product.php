@@ -122,9 +122,24 @@ class Product extends Model
         return $this->belongsToMany(Cuisine::class, 'cuisine_product', 'product_id', 'cuisine_id');
     }
 
+    public function freeProducts(): BelongsToMany
+    {
+        return $this->belongsToMany(Product::class, 'product_free_products', 'main_product_id', 'free_product_id');
+    }
+
+    public function mainProducts(): BelongsToMany
+    {
+        return $this->belongsToMany(Product::class, 'product_free_products', 'free_product_id', 'main_product_id');
+    }
+
     public function b_product()
     {
         return $this->hasMany(ProductByBranch::class);
+    }
+
+    public function distribution()
+    {
+        return $this->hasOne(\App\Models\ProductDistribution::class);
     }
 
     public function getImageFullPathAttribute(): string

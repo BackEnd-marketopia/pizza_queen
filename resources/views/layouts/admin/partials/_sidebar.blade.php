@@ -353,6 +353,13 @@
                                             <span class="text-truncate">{{ translate('bulk_export') }}</span>
                                         </a>
                                     </li>
+                                    <li class="nav-item {{ Request::is('admin/product-distribution*') ? 'active' : '' }}">
+                                        <a class="nav-link " href="{{ route('admin.product.distribution.index') }}"
+                                            title="{{ translate('product distribution') }}">
+                                            <span class="tio-circle nav-indicator-icon"></span>
+                                            <span class="text-truncate">{{ translate('Product Distribution') }}</span>
+                                        </a>
+                                    </li>
                                     <!-- REVIEWS -->
                                     <li
                                         class="navbar-vertical-aside-has-menu {{ Request::is('admin/reviews*') ? 'active' : '' }}">

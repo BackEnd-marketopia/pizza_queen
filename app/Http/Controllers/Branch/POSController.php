@@ -55,12 +55,32 @@ class POSController extends Controller
         $selectedTable = $this->table->where('id', session('table_id'))->first();
 
         $products = $this->product
-            ->with('product_by_branch')
-            ->with(['product_by_branch' => function ($q) {
+            ->with('b_product', 'distribution')
+            ->with(['b_product' => function ($q) {
                 $q->where(['is_available' => 1, 'branch_id' => auth('branch')->id()]);
             }])
-            ->whereHas('product_by_branch', function ($q) {
+            ->whereHas('b_product', function ($q) {
                 $q->where(['is_available' => 1, 'branch_id' => auth('branch')->id()]);
+            })
+            ->whereHas('distribution', function ($query) {
+                $currentBranchId = auth('branch')->id();
+                $query->where(function ($q) use ($currentBranchId) {
+                    // All branches
+                    $q->where('distribution_type', 'all_branches')
+                      // Selected branches that include current branch
+                      ->orWhere(function ($subQ) use ($currentBranchId) {
+                          $subQ->where('distribution_type', 'selected_branches')
+                               ->where('branch_ids', 'like', '%"' . $currentBranchId . '"%');
+                      })
+                      // Main branch only and current branch is main
+                      ->orWhere(function ($subQ) use ($currentBranchId) {
+                          if ($currentBranchId == 1) {
+                              $subQ->where('distribution_type', 'main_only');
+                          } else {
+                              $subQ->whereRaw('1=0'); // Never match for non-main branches
+                          }
+                      });
+                });
             })
             ->when($request->has('category_id') && $request['category_id'] != 0, function ($query) use ($request) {
                 $query->whereJsonContains('category_ids', [['id' => (string)$request['category_id']]]);
@@ -86,14 +106,52 @@ class POSController extends Controller
      * @param Request $request
      * @return JsonResponse
      */
+    /**
+     * @param Request $request
+     * @return JsonResponse
+     */
     public function quickView(Request $request): JsonResponse
     {
-        $product = $this->product->with('product_by_branch')->findOrFail($request->product_id);
+        try {
+            $product = $this->product->with(['product_by_branch'])->findOrFail($request->product_id);
+            
+            // Decode variations for branch products
+            if (isset($product->product_by_branch) && count($product->product_by_branch) > 0) {
+                foreach ($product->product_by_branch as $branch_product) {
+                    try {
+                        $branch_product->variations = $branch_product->variations ? json_decode($branch_product->variations, true) : [];
+                    } catch (\Exception $e) {
+                        $branch_product->variations = [];
+                    }
+                }
+            } else {
+                // If no branch-specific data, decode the product's own variations for display
+                try {
+                    $product->variations = $product->variations ? json_decode($product->variations, true) : [];
+                } catch (\Exception $e) {
+                    $product->variations = [];
+                }
+            }
 
-        return response()->json([
-            'success' => 1,
-            'view' => view('branch-views.pos._quick-view-data', compact('product'))->render(),
-        ]);
+            try {
+                $view = view('branch-views.pos._quick-view-data', compact('product'))->render();
+            } catch (\Exception $e) {
+                return response()->json([
+                    'success' => 0,
+                    'message' => 'Error rendering product view: ' . $e->getMessage(),
+                ], 500);
+            }
+
+            return response()->json([
+                'success' => 1,
+                'view' => $view,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => 0,
+                'message' => 'Error loading product: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
@@ -249,6 +307,10 @@ class POSController extends Controller
 
         if (isset($branchProduct)) {
             $branchProductVariations = $branchProduct->variations;
+            // Decode variations if they're stored as JSON
+            if (is_string($branchProductVariations)) {
+                $branchProductVariations = json_decode($branchProductVariations, true) ?? [];
+            }
 
             if ($request->variations && count($branchProductVariations)) {
                 foreach ($request->variations as $key => $value) {
@@ -292,7 +354,18 @@ class POSController extends Controller
         $data['variant'] = $str;
 
         $data['quantity'] = $request['quantity'];
-        $data['price'] = $price;
+        
+        // Handle free products
+        if (isset($request->is_free) && $request->is_free === 'true') {
+            $data['price'] = 0;
+            $data['is_free'] = true;
+            $data['free_for_product'] = $request->free_for_product ?? null;
+        } else {
+            $data['price'] = $price;
+            $data['is_free'] = false;
+            $data['free_for_product'] = null;
+        }
+        
         $data['name'] = $product->name;
         $data['discount'] = $discountOnProduct;
         $data['image'] = $product->image;
@@ -464,7 +537,13 @@ class POSController extends Controller
 
                     $discountData = [];
                     if (isset($branchProduct)) {
-                        $variationData = Helpers::get_varient($branchProduct->variations, $c['variations']);
+                        // Decode variations if they're stored as JSON
+                        $decodedVariations = $branchProduct->variations;
+                        if (is_string($decodedVariations)) {
+                            $decodedVariations = json_decode($decodedVariations, true) ?? [];
+                        }
+                        
+                        $variationData = Helpers::get_varient($decodedVariations, $c['variations']);
                         $discountData = [
                             'discount_type' => $branchProduct['discount_type'],
                             'discount' => $branchProduct['discount']
@@ -488,6 +567,8 @@ class POSController extends Controller
                         'add_on_prices' => json_encode($c['add_on_prices']),
                         'add_on_taxes' => json_encode($c['add_on_tax']),
                         'add_on_tax_amount' => $c['addon_total_tax'],
+                        'is_free' => isset($c['is_free']) && $c['is_free'] ? true : false,
+                        'free_for_product_id' => isset($c['free_for_product']) ? (int)$c['free_for_product'] : null,
                         'created_at' => now('Africa/Cairo'),
                         'updated_at' => now('Africa/Cairo')
                     ];

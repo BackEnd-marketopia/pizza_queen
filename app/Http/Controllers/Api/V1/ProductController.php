@@ -748,10 +748,18 @@ class ProductController extends Controller
     public static function is_available(array $products): array
     {
         $now = now('Africa/Cairo');
+        $currentBranchId = Config::get('branch_id') ?? 1;
 
         foreach ($products as &$product) {
             if (isset($product['item_type']) && $product['item_type'] === 'set_menu') {
                 $product['is_available'] = true;
+                continue;
+            }
+
+            // Check product distribution first
+            $distribution = \App\Models\ProductDistribution::where('product_id', $product['id'])->first();
+            if ($distribution && !$distribution->isAvailableForBranch($currentBranchId)) {
+                $product['is_available'] = false;
                 continue;
             }
 
@@ -786,7 +794,7 @@ class ProductController extends Controller
     public function can_free(Request $request, string $id)
     {
         $validate = Validator::make($request->all(), [
-            'category_id' => 'required|integer',
+            'category_id' => 'nullable|integer',
         ]);
 
         if ($validate->fails()) {
@@ -794,45 +802,66 @@ class ProductController extends Controller
                 'message' => $validate->errors()->first()
             ], 400);
         }
-        $category_id = $request->category_id;
-
+        
         $product = Product::find($id);
-        if (!$product)
+        if (!$product) {
             return response()->json([
                 'message' => 'Product Not Found',
+                'debug' => ['product_id' => $id]
             ], 404);
+        }
 
-        if (!$product->has_free)
+        if (!$product->has_free) {
             return response()->json([
                 'message' => 'This Product Not Available to this Feature',
+                'debug' => [
+                    'product_id' => $id,
+                    'product_name' => $product->name,
+                    'has_free' => $product->has_free
+                ]
             ], 404);
+        }
 
-        // $product->category_ids = json_decode($product->category_ids, true);
-        // if ($category_id == $product->category_ids[0]['id'])
-        //     return response()->json([
-        //         'message' => 'This Product Not Available to this Feature',
-        //     ], 404);
+        // Get free products related to this main product
+        $products = $product->freeProducts()
+            ->active()
+            ->get();
 
-        $products = Product::active()
-            ->with(['b_product' =>  function ($query) {
-                $query->where('is_available', true);
-            }])
-            ->where('price', '<=', $product->price)
-            ->when($category_id, function ($q) use ($category_id) {
-                $q->whereJsonContains('category_ids', [['id' => $category_id]]);
-            })
-            ->where('can_free', true)->get();
+        // If has_free is true but no free products are available, return error
+        if ($products->isEmpty()) {
+            return response()->json([
+                'message' => 'No free products available for this item',
+                'debug' => [
+                    'main_product_id' => $id,
+                    'main_product_name' => $product->name,
+                    'has_free' => $product->has_free,
+                    'free_products_count' => 0,
+                    'relationship_exists' => false
+                ]
+            ], 404);
+        }
 
-        foreach ($products as $product) {
-            $product->category_ids = json_decode($product->category_ids, true);
-            $product->variations = json_decode($product->variations, true);
-            $product->add_ons = json_decode($product->add_ons, true);
-            $product->attributes = json_decode($product->attributes, true);
-            $product->choice_options = json_decode($product->choice_options, true);
+        // Debug information
+        $debug_info = [
+            'main_product_id' => $id,
+            'main_product_name' => $product->name,
+            'has_free' => $product->has_free,
+            'free_products_count' => $products->count(),
+            'relationship_exists' => $product->freeProducts()->exists()
+        ];
+
+        // Format the products data
+        foreach ($products as $freeProduct) {
+            $freeProduct->category_ids = json_decode($freeProduct->category_ids, true);
+            $freeProduct->variations = json_decode($freeProduct->variations, true);
+            $freeProduct->add_ons = json_decode($freeProduct->add_ons, true);
+            $freeProduct->attributes = json_decode($freeProduct->attributes, true);
+            $freeProduct->choice_options = json_decode($freeProduct->choice_options, true);
         }
 
         return response()->json([
             'products' => $products,
+            'debug' => $debug_info
         ]);
     }
 

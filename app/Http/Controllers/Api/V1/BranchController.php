@@ -48,12 +48,31 @@ class BranchController extends Controller
 
         $key = explode(' ', $name);
         $paginator = Product::active()
-            ->with(['b_product', 'rating'])
+            ->with(['b_product', 'rating', 'distribution'])
             ->whereHas('b_product', function ($query) use($branchId){
                 $query->where(['branch_id' => $branchId, 'is_available' => 1]);
             })
             ->whereHas('b_product.branch', function ($query) {
                 $query->where('status', 1);
+            })
+            ->whereHas('distribution', function ($query) use ($branchId) {
+                $query->where(function ($q) use ($branchId) {
+                    // All branches
+                    $q->where('distribution_type', 'all_branches')
+                      // Selected branches that include current branch
+                      ->orWhere(function ($subQ) use ($branchId) {
+                          $subQ->where('distribution_type', 'selected_branches')
+                               ->where('branch_ids', 'like', '%"' . $branchId . '"%');
+                      })
+                      // Main branch only and current branch is main
+                      ->orWhere(function ($subQ) use ($branchId) {
+                          if ($branchId == 1) {
+                              $subQ->where('distribution_type', 'main_only');
+                          } else {
+                              $subQ->whereRaw('1=0'); // Never match for non-main branches
+                          }
+                      });
+                });
             })
             ->where(function ($q) use ($key) {
                 foreach ($key as $value) {

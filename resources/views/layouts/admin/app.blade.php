@@ -660,6 +660,7 @@
         @endif
     </script>
 
+    @yield('script')
 
 </body>
 

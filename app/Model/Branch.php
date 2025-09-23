@@ -69,4 +69,9 @@ class Branch extends Authenticatable
         return $this->hasMany(DeliveryChargeByArea::class, 'branch_id', 'id')->latest();
     }
 
+    public function scopeActive($query)
+    {
+        return $query->where('status', 1);
+    }
+
 }

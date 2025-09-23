@@ -45,8 +45,13 @@
                                 <img class="avatar avatar-sm" src="{{asset('storage/app/public/product')}}/{{$cartItem['image']}}"
                                      onerror="this.src='{{asset('public/assets/admin/img/160x160/img2.jpg')}}'" alt="{{$cartItem['name']}} image">
                                 <div class="media-body">
-                                    <h5 class="text-hover-primary mb-0">{{Str::limit($cartItem['name'], 10)}}</h5>
-                                    <small>{{Str::limit($cartItem['variant'], 20)}}</small>
+                                <h5 class="text-hover-primary mb-0">
+                                    {{Str::limit($cartItem['name'], 10)}}
+                                    @if(isset($cartItem['is_free']) && $cartItem['is_free'])
+                                        <span class="badge badge-success ml-1" style="font-size: 10px;">{{translate('Free')}}</span>
+                                    @endif
+                                </h5>
+                                <small>{{Str::limit($cartItem['variant'], 20)}}</small>
                                     <small class="d-block">
                                         @php($addOnQtys=$cartItem['add_on_qtys'])
                                         @foreach($cartItem['add_ons'] as $key2 =>$id)

@@ -1,10 +1,51 @@
+<style>
+    .modal-dialog-scrollable .modal-content {
+        max-height: 90vh;
+    }
+    .modal-dialog-scrollable .modal-body {
+        overflow-y: auto;
+        max-height: calc(90vh - 120px);
+    }
+    .quick-view-modal-body {
+        max-height: 70vh;
+        overflow-y: auto;
+    }
+</style>
+
+<div class="modal fade" id="free-product-modal" tabindex="-1" role="dialog" aria-labelledby="freeProductModalLabel"
+    aria-hidden="true">
+            <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="freeProductModalLabel">{{translate('Available Products')}}</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="row" id="free-products-container">
+                    <div class="col-12 text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="sr-only">{{translate('Loading...')}}</span>
+                        </div>
+                        <p class="mt-2">{{translate('Loading free products...')}}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="dismiss" data-dismiss="modal">{{translate('Close')}}</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="modal-header p-2">
     <h4 class="modal-title product-title"></h4>
     <button class="close call-when-done" type="button" data-dismiss="modal" aria-label="Close">
         <span aria-hidden="true">&times;</span>
     </button>
 </div>
-<div class="modal-body">
+<div class="modal-body quick-view-modal-body">
     <div class="d-flex flex-wrap gap-3">
         <div class="d-flex align-items-center justify-content-center active">
             <img class="img-responsive rounded" width="160"
@@ -79,10 +120,22 @@
             <form id="add-to-cart-form" class="mb-2">
                 @csrf
                 <input type="hidden" name="id" value="{{ $product->id }}">
-                @if (isset($product->product_by_branch) && count($product->product_by_branch))
-                    @foreach($product->product_by_branch as $branch_product)
-                        @foreach ($branch_product->variations as $key => $choice)
-                            @if (isset($choice->price) == false)
+                <input type="hidden" name="is_free" value="false">
+                <input type="hidden" name="free_for_product" value="">
+                @if ((isset($product->product_by_branch) && count($product->product_by_branch)) || (isset($product->variations) && is_array($product->variations)))
+                    @php
+                        $variation_sources = (isset($product->product_by_branch) && count($product->product_by_branch)) 
+                            ? $product->product_by_branch 
+                            : (isset($product->variations) ? [['variations' => $product->variations]] : []);
+                    @endphp
+                    
+                    @foreach($variation_sources as $branch_product)
+                        @php
+                            $variations = isset($branch_product->variations) ? $branch_product->variations : (isset($branch_product['variations']) ? $branch_product['variations'] : []);
+                        @endphp
+                        
+                        @foreach ($variations as $key => $choice)
+                            @if (isset($choice['name']) && !isset($choice->price))
                                 <div class="h3 p-0 pt-2">
                                     {{ $choice['name'] }}
                                     <small class="text-muted custom-text-size12">
@@ -221,6 +274,12 @@
                         <i class="tio-shopping-cart"></i>
                         {{translate('add')}}
                     </button>
+                    @if ($product->has_free)
+                        <button class="btn btn-secondary px-md-5" id="show-free-product" type="button">
+                            <i class="tio-gift"></i>
+                            {{translate('add free product')}}
+                        </button>
+                    @endif
                 </div>
             </form>
         </div>

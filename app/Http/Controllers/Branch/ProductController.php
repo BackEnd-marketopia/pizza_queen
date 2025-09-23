@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Contracts\Support\Renderable;
+use Illuminate\Support\Facades\Log;
 
 class ProductController extends Controller
 {
@@ -45,7 +46,64 @@ class ProductController extends Controller
         } else {
             $query = $this->product;
         }
-        $products = $query->with(['product_by_branch', 'sub_branch_product'])->orderBy('id', 'DESC')->paginate(Helpers::getPagination())->appends($queryParam);
+
+        // Apply distribution filtering for branch dashboard
+        $currentBranchId = auth('branch')->id() ?? 1;
+        
+        // Debug logging
+        Log::info('Branch ProductController Debug:', [
+            'current_branch_id' => $currentBranchId,
+            'auth_branch_id' => auth('branch')->id(),
+            'search' => $request->get('search'),
+            'request_uri' => request()->getRequestUri()
+        ]);
+        
+        $query = $query->with(['b_product', 'sub_branch_product', 'distribution'])
+            ->whereHas('b_product', function ($branchQuery) use ($currentBranchId) {
+                $branchQuery->where('branch_id', $currentBranchId);
+            })
+            ->whereHas('distribution', function ($distributionQuery) use ($currentBranchId) {
+                $distributionQuery->where(function ($q) use ($currentBranchId) {
+                    // All branches
+                    $q->where('distribution_type', 'all_branches')
+                      // Selected branches that include current branch
+                      ->orWhere(function ($subQ) use ($currentBranchId) {
+                          $subQ->where('distribution_type', 'selected_branches')
+                               ->where('branch_ids', 'like', '%"' . $currentBranchId . '"%');
+                      })
+                      // Main branch only and current branch is main
+                      ->orWhere(function ($subQ) use ($currentBranchId) {
+                          if ($currentBranchId == 1) {
+                              $subQ->where('distribution_type', 'main_only');
+                          } else {
+                              $subQ->whereRaw('1=0'); // Never match for non-main branches
+                          }
+                      });
+                });
+            });
+            
+        $products = $query->orderBy('id', 'DESC')->paginate(Helpers::getPagination())->appends($queryParam);
+
+        // Debug: Log products for current branch
+        $productIds = $products->pluck('id')->toArray();
+        Log::info('Branch ProductController - Products returned:', [
+            'branch_id' => $currentBranchId,
+            'total_products' => $products->total(),
+            'product_ids' => $productIds,
+            'includes_217' => in_array(217, $productIds) ? 'YES ❌' : 'NO ✅'
+        ]);
+        
+        // Debug specific problematic products
+        if (in_array(217, $productIds)) {
+            $product217 = $products->where('id', 217)->first();
+            if ($product217 && $product217->distribution) {
+                Log::error('Branch ProductController - Product 217 should NOT be visible to main branch:', [
+                    'distribution_type' => $product217->distribution->distribution_type,
+                    'branch_ids' => $product217->distribution->branch_ids,
+                    'current_branch' => $currentBranchId
+                ]);
+            }
+        }
 
         return view('branch-views.product.list', compact('products', 'search'));
     }

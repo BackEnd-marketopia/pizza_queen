@@ -355,6 +355,16 @@
                                                 <input type="checkbox" id="can_free" name="can_free" value="1">&nbsp; <label class="input-label" style="display: inline">{{translate('This product Can Be Free?')}}</label> 
                                                 <br><br>
                                                 <input type="checkbox" id="has_free" name="has_free" value="1">&nbsp; <label class="input-label" id="has_free_label" style="display: inline">{{translate('This product Has a Free Products?')}}</label>
+                                                <br><br>
+                                                <div id="free_products_section" style="display: none;">
+                                                    <label class="input-label">{{translate('Select Free Products')}}</label>
+                                                    <select name="free_product_ids[]" class="form-control js-select2-custom" multiple>
+                                                        @foreach($freeProducts as $freeProduct)
+                                                            <option value="{{ $freeProduct->id }}">{{ $freeProduct->name }}</option>
+                                                        @endforeach
+                                                    </select>
+                                                    <small class="text-muted">{{translate('Select the products that can be offered as free with this product')}}</small>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -886,6 +896,14 @@
 
     <script>
         $('#product_form').on('submit', function() {
+            // Ensure checkbox values are sent even when unchecked
+            if (!$('#can_free').is(':checked')) {
+                $(this).append('<input type="hidden" name="can_free" value="0">');
+            }
+            if (!$('#has_free').is(':checked')) {
+                $(this).append('<input type="hidden" name="has_free" value="0">');
+            }
+            
             var formData = new FormData(this);
             $.ajaxSetup({
                 headers: {
@@ -962,14 +980,8 @@
 
     <script>
         $("#discount_type").change(function() {
-            if(this.value != 'not_selected'){
-                $("#has_free").hide();
-                $("#has_free_label").hide();
-                $("#has_free").prop("checked", false);
-            }else{
-                $("#has_free").show();
-                $("#has_free_label").show();
-            }
+            // Removed the condition that hides has_free based on discount_type
+            // has_free should always be available
             if (this.value === 'amount') {
                 $("#discount_input").show();
                 $("#discount_label").show();
@@ -1004,5 +1016,18 @@
                 $("#product_stock_div").addClass('d-none')
             }
         });
+
+        // Handle free products section visibility
+        $('#has_free').change(function() {
+            if ($(this).is(':checked')) {
+                $('#free_products_section').show();
+            } else {
+                $('#free_products_section').hide();
+            }
+        });
+
+        // Ensure has_free is visible on page load
+        $("#has_free").show();
+        $("#has_free_label").show();
     </script>
 @endpush

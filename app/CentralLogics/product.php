@@ -19,12 +19,32 @@ class ProductLogic
     {
         $limit = is_null($limit) ? 10 : $limit;
         $offset = is_null($offset) ? 1 : $offset;
+        $currentBranchId = \Illuminate\Support\Facades\Config::get('branch_id') ?? 1;
 
         $key = explode(' ', $name);
         $paginator = Product::active()
-            ->with(['branch_product', 'rating'])
-            ->whereHas('branch_product.branch', function ($query) {
-                $query->where('status', 1);
+            ->with(['b_product', 'rating', 'distribution'])
+            ->whereHas('b_product', function ($query) use ($currentBranchId) {
+                $query->where('branch_id', $currentBranchId);
+            })
+            ->whereHas('distribution', function ($query) use ($currentBranchId) {
+                $query->where(function ($q) use ($currentBranchId) {
+                    // All branches
+                    $q->where('distribution_type', 'all_branches')
+                      // Selected branches that include current branch
+                      ->orWhere(function ($subQ) use ($currentBranchId) {
+                          $subQ->where('distribution_type', 'selected_branches')
+                               ->where('branch_ids', 'like', '%"' . $currentBranchId . '"%');
+                      })
+                      // Main branch only and current branch is main
+                      ->orWhere(function ($subQ) use ($currentBranchId) {
+                          if ($currentBranchId == 1) {
+                              $subQ->where('distribution_type', 'main_only');
+                          } else {
+                              $subQ->whereRaw('1=0'); // Never match for non-main branches
+                          }
+                      });
+                });
             })
             ->branchProductAvailability()
             ->where(function ($q) use ($key) {

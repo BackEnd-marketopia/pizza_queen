@@ -167,7 +167,7 @@
 
     <!-- End Content -->
     <div class="modal fade" id="quick-view" tabindex="-1">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-dialog-scrollable modal-lg">
             <div class="modal-content" id="quick-view-modal">
 
             </div>
@@ -561,7 +561,10 @@
             }
         }
 
-        function quickView(product_id) {
+        function quickView(product_id, options = {}) {
+            // Store options globally for use in Quick View modal
+            window.quickViewOptions = options;
+            
             $.ajax({
                 url: '{{ route('branch.pos.quick-view') }}',
                 type: 'GET',
@@ -573,8 +576,43 @@
                     $('#loading').show();
                 },
                 success: function(data) {
+                    if (data.success == 0) {
+                        console.error('Quick View Error:', data.message);
+                        toastr.error(data.message || '{{ translate("Error loading product details") }}');
+                        return;
+                    }
+                    
                     $('#quick-view').modal('show');
                     $('#quick-view-modal').empty().html(data.view);
+                    
+                    // If this is a free product, modify the modal after loading
+                    if (options.is_free) {
+                        setTimeout(function() {
+                            // Hide free product button to prevent infinite chain
+                            $('#show-free-product').hide();
+                            
+                            // Set form values for free product
+                            $('#add-to-cart-form input[name="is_free"]').val('true');
+                            $('#add-to-cart-form input[name="free_for_product"]').val(options.free_for_product || '');
+                            
+                            // Change base price to 0 for display
+                            $('.product-price .h3').text('{{ \App\CentralLogics\Helpers::set_symbol(0) }}');
+                            
+                            // Add free product indicator
+                            $('.product-title').append(' <span class="badge badge-success ml-2">{{ translate("Free Product") }}</span>');
+                            
+                            console.log('Modified Quick View for free product');
+                        }, 100);
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Quick View Error:', error);
+                    console.error('Response:', xhr.responseText);
+                    
+                    $('#loading').hide();
+                    
+                    // Show error message
+                    toastr.error('{{ translate("Error loading product details") }}');
                 },
                 complete: function() {
                     $('#loading').hide();
@@ -1050,6 +1088,112 @@
                 $deliveryChargeInput.val(charge);
             });
         });
+
+        // Event delegation for dynamically loaded content
+        $(document).on('click', '#show-free-product', function() {
+            showFreeProduct();
+        });
+
+        $(document).on('click', '.select-free-product', function() {
+            var id = $(this).data('id');
+            var name = $(this).data('name');
+            
+            // Blur the button to remove focus before closing modal
+            $(this).blur();
+            
+            console.log('Free product selected:', id, name);
+            console.log('Current product for free:', currentProductForFree);
+            
+            // Close free products modal
+            $('#free-product-modal').modal('hide');
+            
+            // Wait a bit for modal to close, then open Quick View
+            setTimeout(function() {
+                console.log('Opening Quick View for free product...');
+                
+                // Open Quick View for the selected free product with is_free flag
+                quickView(id, {
+                    is_free: true,
+                    free_for_product: currentProductForFree || null
+                });
+            }, 500); // Increased timeout to ensure modal is fully closed
+        });
+
+        $(document).on('click', '#dismiss', function() {
+            $('#free-product-modal').modal('hide');
+        });
+
+        // Global variable to store current product for free products
+        var currentProductForFree = null;
+
+        function showFreeProduct() {
+            var product_id = $('input[name="id"]').val();
+            
+            // Store the current product ID for later use
+            currentProductForFree = product_id;
+
+            // Show modal first with loading state
+            $('#free-product-modal').modal('show');
+
+             $.ajax({
+                url: '{{ url('api/v1/can_free') }}/' + product_id,
+                type: 'GET',
+                beforeSend: function() {
+                    console.log('Making API call to:', '{{ url('api/v1/can_free') }}/' + product_id);
+                },
+                success: function (response) {
+                     console.log('API Response:', response);
+
+                     let modalBody = $('#free-products-container');
+                     modalBody.empty(); // Clear any existing content in the modal body
+
+                     if (response.debug) {
+                         console.log('Debug Info:', response.debug);
+                     }
+
+                     if (response.products && response.products.length > 0) {
+                         console.log(`Found ${response.products.length} free products`);
+                         // Loop through the products and generate HTML
+                         response.products.forEach(function(product) {
+                             let productHtml = `
+                                 <div class="col-md-6 col-lg-4 mb-3">
+                                     <div class="card h-100 shadow-sm">
+                                         <div class="card-img-container" style="height: 200px; overflow: hidden;">
+                                             <img src="{{asset('storage/app/public/product/')}}/${product.image}" 
+                                                  class="card-img-top w-100 h-100" 
+                                                  style="object-fit: cover;"
+                                                  alt="${product.name}"
+                                                  onerror="this.src='{{asset('public/assets/admin/img/160x160/img2.jpg')}}'">
+                                         </div>
+                                         <div class="card-body d-flex flex-column">
+                                             <h6 class="card-title text-truncate">${product.name}</h6>
+                                             <p class="card-text text-muted small flex-grow-1">${product.description || '{{translate('No description available.')}}'}</p>
+                                             <div class="text-center mt-auto">
+                                                 <button class="btn btn-primary btn-sm w-100 select-free-product" data-id="${product.id}" data-name="${product.name}">
+                                                     <i class="tio-eye"></i> {{translate('View & Add')}}
+                                                 </button>
+                                             </div>
+                                         </div>
+                                     </div>
+                                 </div>
+                             `;
+                             modalBody.append(productHtml);
+                         });
+                     } else {
+                         modalBody.html('<div class="text-center text-muted">{{ translate('No free products available') }}</div>');
+                     }
+                },
+                error: function (xhr, status, error) {
+                    console.error('AJAX Error:', error);
+                    console.error('Status:', status);
+                    console.error('Response:', xhr.responseText);
+                    console.error('Status Code:', xhr.status);
+                    
+                    let modalBody = $('#free-products-container');
+                    modalBody.html('<div class="text-center text-danger">Error loading free products (Status: ' + xhr.status + ')</div>');
+                }
+            });
+        }
     </script>
     <script>
         if (/MSIE \d|Trident.*rv:/.test(navigator.userAgent)) document.write(

@@ -29,6 +29,7 @@ use App\Http\Controllers\Admin\OfflinePaymentMethodController;
 use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\Admin\POSController;
 use App\Http\Controllers\Admin\ProductController;
+use App\Http\Controllers\Admin\ProductDistributionController;
 use App\Http\Controllers\Admin\QRCodeController;
 use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Admin\ReviewsController;
@@ -214,6 +215,14 @@ Route::group(['namespace' => 'Admin', 'as' => 'admin.'], function () {
             Route::get('get-categories', [ProductController::class, 'getCategories'])->name('get-categories');
             Route::get('recommended/{id}/{status}', [ProductController::class, 'recommended'])->name('recommended');
             Route::get('dublicate/{id}', [ProductController::class, 'duplicate'])->name('duplicate');
+        });
+
+        // Product Distribution Routes
+        Route::group(['prefix' => 'product-distribution', 'as' => 'product.distribution.', 'middleware' => ['module:product_management']], function () {
+            Route::get('/', [ProductDistributionController::class, 'index'])->name('index');
+            Route::post('update', [ProductDistributionController::class, 'update'])->name('update');
+            Route::get('show/{productId}', [ProductDistributionController::class, 'show'])->name('show');
+            Route::post('apply-to-all', [ProductDistributionController::class, 'applyToAll'])->name('apply-to-all');
         });
 
         Route::group(['prefix' => 'orders', 'as' => 'orders.', 'middleware' => ['module:order_management']], function () {

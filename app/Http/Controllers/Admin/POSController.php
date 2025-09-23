@@ -78,9 +78,28 @@ class POSController extends Controller
         $products = $this->product
             ->with(['branch_products' => function ($q) use ($selected_branch) {
                 $q->where(['is_available' => 1, 'branch_id' => $selected_branch]);
-            }])
+            }], 'distribution')
             ->whereHas('branch_products', function ($q) use ($selected_branch) {
                 $q->where(['is_available' => 1, 'branch_id' => $selected_branch]);
+            })
+            ->whereHas('distribution', function ($query) use ($selected_branch) {
+                $query->where(function ($q) use ($selected_branch) {
+                    // All branches
+                    $q->where('distribution_type', 'all_branches')
+                      // Selected branches that include selected branch
+                      ->orWhere(function ($subQ) use ($selected_branch) {
+                          $subQ->where('distribution_type', 'selected_branches')
+                               ->where('branch_ids', 'like', '%"' . $selected_branch . '"%');
+                      })
+                      // Main branch only and selected branch is main
+                      ->orWhere(function ($subQ) use ($selected_branch) {
+                          if ($selected_branch == 1) {
+                              $subQ->where('distribution_type', 'main_only');
+                          } else {
+                              $subQ->whereRaw('1=0'); // Never match for non-main branches
+                          }
+                      });
+                });
             })
             ->when($request->has('category_id') && $request['category_id'] != 0, function ($query) use ($request) {
                 $query->whereJsonContains('category_ids', [['id' => (string)$request['category_id']]]);
@@ -107,12 +126,46 @@ class POSController extends Controller
      */
     public function quick_view(Request $request): JsonResponse
     {
-        $product = $this->product->findOrFail($request->product_id);
+        try {
+            $product = $this->product->with(['branch_products'])->findOrFail($request->product_id);
+            
+            // Decode variations for branch products
+            if (isset($product->branch_products) && count($product->branch_products) > 0) {
+                foreach ($product->branch_products as $branch_product) {
+                    try {
+                        $branch_product->variations = $branch_product->variations ? json_decode($branch_product->variations, true) : [];
+                    } catch (\Exception $e) {
+                        $branch_product->variations = [];
+                    }
+                }
+            } else {
+                // If no branch-specific data, decode the product's own variations for display
+                try {
+                    $product->variations = $product->variations ? json_decode($product->variations, true) : [];
+                } catch (\Exception $e) {
+                    $product->variations = [];
+                }
+            }
 
-        return response()->json([
-            'success' => 1,
-            'view' => view('admin-views.pos._quick-view-data', compact('product'))->render(),
-        ]);
+            try {
+                $view = view('admin-views.pos._quick-view-data', compact('product'))->render();
+            } catch (\Exception $e) {
+                return response()->json([
+                    'success' => 0,
+                    'message' => 'Error rendering product view: ' . $e->getMessage(),
+                ], 500);
+            }
+
+            return response()->json([
+                'success' => 1,
+                'view' => $view,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => 0,
+                'message' => 'Error loading product: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
@@ -284,6 +337,10 @@ class POSController extends Controller
 
         if (isset($branch_product)) {
             $branch_product_variations = $branch_product->variations;
+            // Decode variations if they're stored as JSON
+            if (is_string($branch_product_variations)) {
+                $branch_product_variations = json_decode($branch_product_variations, true) ?? [];
+            }
 
             if ($request->variations && count($branch_product_variations)) {
                 foreach ($request->variations as $key => $value) {
@@ -330,11 +387,17 @@ class POSController extends Controller
 
         $data['quantity'] = $request['quantity'];
 
-        if (isset($request->is_free))
+        // Handle free products
+        if (isset($request->is_free) && $request->is_free === 'true') {
             $data['price'] = 0;
-        else
+            $data['is_free'] = true;
+            $data['free_for_product'] = $request->free_for_product ?? null;
+        } else {
             $data['price'] = $price;
-        // $data['price'] = $price;
+            $data['is_free'] = false;
+            $data['free_for_product'] = null;
+        }
+        
         $data['name'] = $product->name;
         $data['discount'] = $discount_on_product;
         $data['image'] = $product->image;
@@ -508,7 +571,13 @@ class POSController extends Controller
 
                     $discount_data = [];
                     if (isset($branch_product)) {
-                        $variation_data = Helpers::get_varient($branch_product->variations, $c['variations']);
+                        // Decode variations if they're stored as JSON
+                        $decoded_variations = $branch_product->variations;
+                        if (is_string($decoded_variations)) {
+                            $decoded_variations = json_decode($decoded_variations, true) ?? [];
+                        }
+                        
+                        $variation_data = Helpers::get_varient($decoded_variations, $c['variations']);
 
                         $discount_data = [
                             'discount_type' => $branch_product['discount_type'],
@@ -534,6 +603,8 @@ class POSController extends Controller
                         'add_on_prices' => json_encode($c['add_on_prices']),
                         'add_on_taxes' => json_encode($c['add_on_tax']),
                         'add_on_tax_amount' => $c['addon_total_tax'],
+                        'is_free' => isset($c['is_free']) && $c['is_free'] ? true : false,
+                        'free_for_product_id' => isset($c['free_for_product']) ? (int)$c['free_for_product'] : null,
                         'created_at' => now('Africa/Cairo'),
                         'updated_at' => now('Africa/Cairo')
                     ];

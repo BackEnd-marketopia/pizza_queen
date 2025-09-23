@@ -98,7 +98,8 @@ class ProductController extends Controller
     {
         $categories = $this->category->where(['position' => 0])->get();
         $cuisines = $this->cuisine::active()->orderBy('priority', 'ASC')->get();
-        return view('admin-views.product.index', compact('categories', 'cuisines'));
+        $freeProducts = $this->product->where('can_free', true)->active()->get();
+        return view('admin-views.product.index', compact('categories', 'cuisines', 'freeProducts'));
     }
 
     /**
@@ -216,6 +217,15 @@ class ProductController extends Controller
             }
         }
 
+        // Validate free product relationships to prevent circular references
+        if ($request->has('free_product_ids') && !empty($request->free_product_ids)) {
+            $freeProductIds = $request->free_product_ids;
+            if (in_array($request->category_id, $freeProductIds)) {
+                $validator->getMessageBag()->add('free_product_ids', translate('Cannot add a product from the same category as a free product to prevent circular relationships!'));
+                return response()->json(['errors' => Helpers::error_processor($validator)]);
+            }
+        }
+
         $imageNames = [];
         if (!empty($request->file('images'))) {
             foreach ($request->images as $img) {
@@ -297,10 +307,8 @@ class ProductController extends Controller
         $product->product_type = $request->product_type;
         $product->image = Helpers::upload('product/', 'png', $request->file('image'));
 
-        if (isset($request->can_free))
-            $product->can_free = $request->can_free;
-        if (isset($request->has_free))
-            $product->has_free = $request->has_free;
+        $product->can_free = $request->can_free ? 1 : 0;
+        $product->has_free = $request->has_free ? 1 : 0;
 
         $product->available_date_starts = $request->available_date_starts ?? null;
         $product->available_date_ends = $request->available_date_ends ?? null;
@@ -325,6 +333,16 @@ class ProductController extends Controller
 
         $product->tags()->sync($tagIds);
         $product->cuisines()->sync($request->cuisines);
+
+        if ($request->has('free_product_ids')) {
+            $product->freeProducts()->sync($request->free_product_ids);
+        }
+
+        \App\Models\ProductDistribution::create([
+            'product_id' => $product->id,
+            'distribution_type' => 'all_branches',
+            'branch_ids' => null
+        ]);
 
         $mainBranchProduct = $this->productByBranch;
         $mainBranchProduct->product_id = $product->id;
@@ -371,12 +389,13 @@ class ProductController extends Controller
      */
     public function edit($id): View|Factory|Application
     {
-        $product = $this->product->withoutGlobalScopes()->with(['translations', 'main_branch_product', 'cuisines'])->find($id);
+        $product = $this->product->withoutGlobalScopes()->with(['translations', 'main_branch_product', 'cuisines', 'freeProducts'])->find($id);
         $product_category = json_decode($product->category_ids);
         $categories = $this->category->where(['parent_id' => 0])->get();
         $cuisines = $this->cuisine::active()->orderBy('priority', 'ASC')->get();
+        $freeProducts = $this->product->where('can_free', true)->active()->get();
 
-        return view('admin-views.product.edit', compact('product', 'product_category', 'categories', 'cuisines'));
+        return view('admin-views.product.edit', compact('product', 'product_category', 'categories', 'cuisines', 'freeProducts'));
     }
 
     /**
@@ -462,6 +481,15 @@ class ProductController extends Controller
                 );
                 $tag->save();
                 $tagIds[] = $tag->id;
+            }
+        }
+
+        // Validate free product relationships to prevent circular references
+        if ($request->has('free_product_ids') && !empty($request->free_product_ids)) {
+            $freeProductIds = $request->free_product_ids;
+            if (in_array($request->category_id, $freeProductIds)) {
+                $validator->getMessageBag()->add('free_product_ids', translate('Cannot add a product from the same category as a free product to prevent circular relationships!'));
+                return response()->json(['errors' => Helpers::error_processor($validator)]);
             }
         }
 
@@ -577,15 +605,8 @@ class ProductController extends Controller
         $product->product_type = $request->product_type;
         $product->image = $request->has('image') ? Helpers::update('product/', $product->image, 'png', $request->file('image')) : $product->image;
 
-        if (isset($request->can_free))
-            $product->can_free = $request->can_free;
-        else
-            $product->can_free = false;
-
-        if (isset($request->has_free))
-            $product->has_free = $request->has_free;
-        else
-            $product->has_free = false;
+        $product->can_free = $request->can_free ? 1 : 0;
+        $product->has_free = $request->has_free ? 1 : 0;
 
         $product->available_date_starts = $request->available_date_starts ?? null;
         $product->available_date_ends = $request->available_date_ends ?? null;
@@ -610,6 +631,11 @@ class ProductController extends Controller
 
         $product->tags()->sync($tagIds);
         $product->cuisines()->sync($request->cuisines);
+
+        // حفظ المنتجات المجانية المرتبطة
+        if ($request->has('free_product_ids')) {
+            $product->freeProducts()->sync($request->free_product_ids);
+        }
 
         $updatedProduct = $this->productByBranch->updateOrCreate(
             [
@@ -1012,5 +1038,76 @@ class ProductController extends Controller
         }
 
         return redirect()->route('admin.product.list')->with('success', __('messages.successfully added'));
+    }
+
+    /**
+     * توزيع المنتج على الفروع حسب نوع التوزيع
+     */
+    private function distributeProductToBranches($productId, $distributionType, $branchIds = null)
+    {
+        // حذف المنتج من جميع الفروع أولاً
+        $this->productByBranch->where('product_id', $productId)->delete();
+
+        // الحصول على بيانات المنتج من الفرع الرئيسي
+        $mainBranchProduct = $this->productByBranch->where('product_id', $productId)
+                                                   ->where('branch_id', 1)->first();
+
+        if (!$mainBranchProduct) {
+            // إذا لم يكن موجود في الفرع الرئيسي، نبحث عن أي فرع آخر
+            $mainBranchProduct = $this->productByBranch->where('product_id', $productId)->first();
+        }
+
+        if (!$mainBranchProduct) {
+            return; // لا يوجد بيانات للمنتج
+        }
+
+        $branches = \App\Model\Branch::active()->get();
+
+        if ($distributionType === 'all_branches') {
+            // إضافة لجميع الفروع
+            foreach ($branches as $branch) {
+                $this->productByBranch->create([
+                    'product_id' => $productId,
+                    'branch_id' => $branch->id,
+                    'price' => $mainBranchProduct->price,
+                    'discount_type' => $mainBranchProduct->discount_type,
+                    'discount' => $mainBranchProduct->discount,
+                    'is_available' => 1,
+                    'variations' => $mainBranchProduct->variations,
+                    'stock_type' => $mainBranchProduct->stock_type,
+                    'stock' => $mainBranchProduct->stock,
+                ]);
+            }
+        } elseif ($distributionType === 'selected_branches' && $branchIds) {
+            // إضافة للفروع المحددة فقط
+            foreach ($branchIds as $branchId) {
+                $this->productByBranch->create([
+                    'product_id' => $productId,
+                    'branch_id' => $branchId,
+                    'price' => $mainBranchProduct->price,
+                    'discount_type' => $mainBranchProduct->discount_type,
+                    'discount' => $mainBranchProduct->discount,
+                    'is_available' => 1,
+                    'variations' => $mainBranchProduct->variations,
+                    'stock_type' => $mainBranchProduct->stock_type,
+                    'stock' => $mainBranchProduct->stock,
+                ]);
+            }
+        } elseif ($distributionType === 'main_only') {
+            // إضافة للفرع الرئيسي فقط (إذا لم يكن موجود)
+            if (!$this->productByBranch->where('product_id', $productId)->where('branch_id', 1)->exists()) {
+                $this->productByBranch->create([
+                    'product_id' => $productId,
+                    'branch_id' => 1,
+                    'price' => $mainBranchProduct->price,
+                    'discount_type' => $mainBranchProduct->discount_type,
+                    'discount' => $mainBranchProduct->discount,
+                    'is_available' => 1,
+                    'variations' => $mainBranchProduct->variations,
+                    'stock_type' => $mainBranchProduct->stock_type,
+                    'stock' => $mainBranchProduct->stock,
+                ]);
+            }
+        }
     }
 }

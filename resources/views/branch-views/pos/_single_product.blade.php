@@ -18,6 +18,14 @@
     <div class="pos-product-item_content clickable">
         <div class="pos-product-item_title">{{ Str::limit($product['name'], 15) }}</div>
 
+        <div class="pos-product-item_title">
+            @if ($product['has_free'] == 1)
+                <span class="badge badge-inline badge-success">{{ translate('Has Free') }}</span>
+            @else
+                <span class="badge badge-inline badge-secondary">{{ translate('Not Has Free') }}</span>
+            @endif
+        </div>
+
         <div class="pos-product-item_price">
             {{ Helpers::set_symbol(($price - Helpers::discount_calculate($discountData, $price))) }}
         </div>

@@ -1,17 +1,39 @@
+<style>
+    .modal-dialog-scrollable .modal-content {
+        max-height: 90vh;
+    }
+    .modal-dialog-scrollable .modal-body {
+        overflow-y: auto;
+        max-height: calc(90vh - 120px);
+    }
+    .quick-view-modal-body {
+        max-height: 70vh;
+        overflow-y: auto;
+    }
+</style>
+
 <div class="modal fade" id="free-product-modal" tabindex="-1" role="dialog" aria-labelledby="freeProductModalLabel"
     aria-hidden="true">
-    <div class="modal-dialog" role="document">
+    <div class="modal-dialog modal-lg" role="document">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="freeProductModalLabel">Free Product</h5>
+                <h5 class="modal-title" id="freeProductModalLabel">{{translate('Available Products')}}</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
             </div>
             <div class="modal-body">
-                <div class="row">
-                   
+                <div class="row" id="free-products-container">
+                    <div class="col-12 text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="sr-only">{{translate('Loading...')}}</span>
+                        </div>
+                        <p class="mt-2">{{translate('Loading free products...')}}</p>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" id="dismiss" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-secondary" id="dismiss" data-dismiss="modal">{{translate('Close')}}</button>
             </div>
         </div>
     </div>
@@ -22,7 +44,7 @@
         <span aria-hidden="true">&times;</span>
     </button>
 </div>
-<div class="modal-body">
+<div class="modal-body quick-view-modal-body">
     <div class="d-flex flex-wrap gap-3">
         <div class="d-flex align-items-center justify-content-center active">
             <img class="img-responsive rounded" width="160"
@@ -104,6 +126,8 @@ if (session()->has('cart')) {
                 @csrf
                 <input type="hidden" name="id" value="{{ $product->id }}">
                 <input type="hidden" name="category_id" value="{{ $product->category_ids }}">
+                <input type="hidden" name="is_free" value="false">
+                <input type="hidden" name="free_for_product" value="">
                 @if (isset($product->branch_products) && count($product->branch_products))
                     @foreach($product->branch_products as $branch_product)
                         @foreach ($branch_product->variations as $key => $choice)
@@ -268,37 +292,54 @@ if (session()->has('cart')) {
         showFreeProduct();
     });
     
+    // Global variable to store current product for free products
+    var currentProductForFree = null;
+    
     function showFreeProduct(){
         var product_id = $('input[name="id"]').val();
-        var category_id = $('input[name="category_id"]').val();
-        var cat = JSON.parse(category_id);
+        
+        // Store the current product ID for later use
+        currentProductForFree = product_id;
+
+        // Show modal first with loading state
+        $('#free-product-modal').modal('show');
 
          $.ajax({
-            url: '{{ route('can_free', ':product_id') }}'.replace(':product_id', product_id),
+            url: '{{ url('api/v1/can_free') }}/' + product_id,
             type: 'GET',
-            data: {
-                category_id: cat[0]?.id
-            },
             success: function (response) {
-                 console.log(response);
+                 console.log('API Response:', response);
 
-                 if (response.products) {
-                     let modalBody = $('#free-product-modal .modal-body .row');
-                     modalBody.empty(); // Clear any existing content in the modal body
+                 let modalBody = $('#free-products-container');
+                 modalBody.empty(); // Clear any existing content in the modal body
 
+                 if (response.debug) {
+                     console.log('Debug Info:', response.debug);
+                 }
+
+                 if (response.products && response.products.length > 0) {
+                     console.log(`Found ${response.products.length} free products`);
                      // Loop through the products and generate HTML
                      response.products.forEach(product => {
                         product.price = 0;
                          const productHTML = `
-                <div class="col-md-4 mb-3">
-                    <div class="card">
-                        <img src="../storage/app/public/product/${product.image}" class="card-img-top" alt="${product.name}">
-                        <div class="card-body">
-                            <h5 class="card-title">${product.name}</h5>
-                            <p class="card-text">${product.description || 'No description available.'}</p>
-                            <button class="btn btn-primary btn-sm" id="select-free-product" data-id="${product.id}">
-                                Select
-                            </button>
+                <div class="col-md-6 col-lg-4 mb-3">
+                    <div class="card h-100 shadow-sm">
+                        <div class="card-img-container" style="height: 200px; overflow: hidden;">
+                            <img src="{{asset('storage/app/public/product/')}}/${product.image}" 
+                                 class="card-img-top w-100 h-100" 
+                                 style="object-fit: cover;"
+                                 alt="${product.name}"
+                                 onerror="this.src='{{asset('public/assets/admin/img/160x160/img2.jpg')}}'">
+                        </div>
+                        <div class="card-body d-flex flex-column">
+                            <h6 class="card-title text-truncate">${product.name}</h6>
+                            <p class="card-text text-muted small flex-grow-1">${product.description || '{{translate('No description available.')}}'}</p>
+                            <div class="text-center mt-auto">
+                                <button class="btn btn-primary btn-sm w-100" id="select-free-product" data-id="${product.id}" data-name="${product.name}">
+                                    <i class="tio-eye"></i> {{translate('View & Add')}}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -306,43 +347,56 @@ if (session()->has('cart')) {
 
                          modalBody.append(productHTML); // Add product HTML to modal body
                      });
-
-                     // Show the modal
-                     $('#free-product-modal').modal('show');
                  } else {
-                     alert(response.message || 'No free products available.');
+                     console.log('No free products found or empty array');
+                     console.log('Response products:', response.products);
+                     modalBody.html(`
+                        <div class="col-12 text-center py-4">
+                            <div class="mb-3">
+                                <i class="tio-sentiment-dissatisfied" style="font-size: 3rem; color: #ccc;"></i>
+                            </div>
+                            <h5 class="text-muted">{{translate('No free products available')}}</h5>
+                            <p class="text-muted">{{translate('There are no free products available for this item.')}}</p>
+                            ${response.debug ? `<small class="text-muted">Debug: ${JSON.stringify(response.debug)}</small>` : ''}
+                        </div>
+                    `);
                  }
-             },error: function (xhr, status, error) {
-                console.error(error);
-                // Handle errors here
+             },
+             error: function (xhr, status, error) {
+                console.error('AJAX Error:', error);
+                console.error('Response:', xhr.responseText);
+                
+                try {
+                    let response = JSON.parse(xhr.responseText);
+                    if (response.message) {
+                        // Show error message to user
+                        toastr.error(response.message);
+                        // Hide the modal since there's no free products
+                        $('#free-product-modal').modal('hide');
+                        return;
+                    }
+                } catch (e) {
+                    console.error('Error parsing response:', e);
+                }
+                
+                // Fallback error handling
+                let modalBody = $('#free-products-container');
+                modalBody.html(`
+                    <div class="col-12 text-center py-4">
+                        <div class="mb-3">
+                            <i class="tio-error" style="font-size: 3rem; color: #dc3545;"></i>
+                        </div>
+                        <h5 class="text-danger">{{translate('Error loading products')}}</h5>
+                        <p class="text-muted">{{translate('Please try again later.')}}</p>
+                        <small class="text-muted">Error: ${error}</small>
+                    </div>
+                `);
             }
         });
     }
     $('#dismiss').click(function(){
         $('#free-product-modal').modal('hide');
     })
-    $(document).on('click', '#select-free-product', function () {
-        var id = $(this).data('id');
-        console.log(id);
-        $.ajax({
-            url: 'pos/add-to-cart',
-            type: 'POST',
-            data: {
-                id: id,
-                is_free : true,
-                quantity : 1,
-                _token: '{{ csrf_token() }}'
-            },
-            success: function (response) {
-                alert('Free product added to cart successfully.');
-            },
-            error: function (xhr, status, error) {
-                console.error(error);
-                alert('An error occurred while adding the free product to the cart.');
-            }
 
-        });
-        $('#free-product-modal').modal('hide');
-    });
 </script>
 

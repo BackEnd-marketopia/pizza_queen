@@ -352,6 +352,16 @@
                                                 <br><br>
                                                 <input type="checkbox"id="has_free" name="has_free" value="1" {{$product->has_free == 1 ? 'checked' : ''}}>&nbsp; <label class="input-label"
                                                      id="has_free_label" style="display: inline">{{translate('This product Has a Free Products?')}}</label>
+                                                <br><br>
+                                                <div id="free_products_section" style="display: none;">
+                                                    <label class="input-label">{{translate('Select Free Products')}}</label>
+                                                    <select name="free_product_ids[]" class="form-control js-select2-custom" multiple>
+                                                        @foreach($freeProducts as $freeProduct)
+                                                            <option value="{{ $freeProduct->id }}" {{ $product->freeProducts->contains($freeProduct->id) ? 'selected' : '' }}>{{ $freeProduct->name }}</option>
+                                                        @endforeach
+                                                    </select>
+                                                    <small class="text-muted">{{translate('Select the products that can be offered as free with this product')}}</small>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -958,6 +968,14 @@
 
     <script>
         $('#product_form').on('submit', function() {
+            // Ensure checkbox values are sent even when unchecked
+            if (!$('#can_free').is(':checked')) {
+                $(this).append('<input type="hidden" name="can_free" value="0">');
+            }
+            if (!$('#has_free').is(':checked')) {
+                $(this).append('<input type="hidden" name="has_free" value="0">');
+            }
+            
             var formData = new FormData(this);
 
             $.ajaxSetup({
@@ -1007,19 +1025,12 @@
             }
         });
         if($("#discount").val() != 0){
-            $("#has_free").hide();
-            $("#has_free_label").hide();
-            $("#has_free").prop("checked", false);
+            // Removed hiding has_free when discount != 0
+            // has_free should always be available
         }
         $("#discount_type").change(function () {
-            if (this.value != 'not_selected') {
-                $("#has_free").hide();
-                $("#has_free_label").hide();
-                $("#has_free").prop("checked", false);
-            } else {
-                $("#has_free").show();
-                $("#has_free_label").show();
-            }
+            // Removed the condition that hides has_free based on discount_type
+            // has_free should always be available
             if (this.value === 'amount') {
                 $("#discount").show();
                 $("#discount_label").show();
@@ -1035,6 +1046,24 @@
                 $("#discount_label").hide();
             }
         });
+
+        // Handle free products section visibility
+        $('#has_free').change(function() {
+            if ($(this).is(':checked')) {
+                $('#free_products_section').show();
+            } else {
+                $('#free_products_section').hide();
+            }
+        });
+
+        // Initialize visibility on page load
+        if ($('#has_free').is(':checked')) {
+            $('#free_products_section').show();
+        }
+
+        // Ensure has_free is visible on page load
+        $("#has_free").show();
+        $("#has_free_label").show();
         
     </script>
 
