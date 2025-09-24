@@ -197,9 +197,9 @@
                                     {{translate('Discount : ')}}{{ \App\CentralLogics\Helpers::set_symbol($detail['discount_on_product']) }}
                                 </td>
                                 @if ($free_product)
-                                    <td><span style="word-break: break-all;"> {{ Str::limit($free_product['name'], 200) }}</span><br>
+                                    <td><span style="word-break: break-all;"> {{ Str::limit($free_product['name'] ?? 'N/A', 200) }}</span><br>
                                     <span class="d-block text-capitalize">
-                                        Price : <strong>{{\App\CentralLogics\Helpers::set_symbol($free_product['price'])}}</strong>
+                                        Price : <strong>{{\App\CentralLogics\Helpers::set_symbol($free_product['price'] ?? 0)}}</strong>
                                     </span>
                                 </td>
                                 @endif
