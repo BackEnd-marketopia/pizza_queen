@@ -291,11 +291,13 @@ class OrderController extends Controller
 
                 // Handle free products - set base price to 0 but keep variations and add-ons
                 if (isset($c['is_free']) && $c['is_free']) {
+                    // For free products, only charge for variations and addons, base price = 0
                     if ($branch_product) {
                         $branch_product_variations = $branch_product->variations;
                         if (count($branch_product_variations)) {
                             $variation_data = Helpers::get_varient($branch_product_variations, $c['variations']);
-                            $price = 0 + $variation_data['price']; // Base price = 0, keep variation price
+                            $price = $variation_data['price']; // Only variation price, no base price
+                            $variations = $variation_data['variations'];
                         } else {
                             $price = 0; // Base price = 0
                         }
@@ -303,7 +305,8 @@ class OrderController extends Controller
                         $product_variations = json_decode($product->variations, true);
                         if (count($product_variations)) {
                             $variation_data = Helpers::get_varient($product_variations, $c['variations']);
-                            $price = 0 + $variation_data['price']; // Base price = 0, keep variation price
+                            $price = $variation_data['price']; // Only variation price, no base price
+                            $variations = $variation_data['variations'];
                         } else {
                             $price = 0; // Base price = 0
                         }
@@ -316,11 +319,13 @@ class OrderController extends Controller
                 $add_on_quantities = $c['add_on_qtys'];
                 $add_on_prices = [];
                 $add_on_taxes = [];
+                $total_addon_price = 0;
 
                 foreach ($c['add_on_ids'] as $key => $id) {
                     $addon = AddOn::find($id);
                     $add_on_prices[] = $addon['price'];
                     $add_on_taxes[] = ($addon['price'] * $addon['tax']) / 100;
+                    $total_addon_price += $addon['price'] * $add_on_quantities[$key];
                 }
 
                 $total_addon_tax = array_reduce(
@@ -332,6 +337,11 @@ class OrderController extends Controller
                     },
                     0
                 );
+
+                // For free products, add addon prices to the final price
+                if (isset($c['is_free']) && $c['is_free']) {
+                    $price += $total_addon_price;
+                }
                 /*calculation for addon and addon tax end*/
 
                 $or_d = [
@@ -404,6 +414,15 @@ class OrderController extends Controller
             }
 
             $or['total_tax_amount'] = $totalTaxAmount;
+
+            // Log the calculation details for debugging
+            Log::info('Order calculation details', [
+                'order_id' => $order_id,
+                'requested_order_amount' => $request['order_amount'],
+                'calculated_delivery_charge' => $deliveryCharge,
+                'total_tax_amount' => $totalTaxAmount,
+                'final_order_amount_in_db' => $or['order_amount']
+            ]);
 
             $o_id = $this->order->insertGetId($or);
 
