@@ -250,7 +250,7 @@
                             </dd>
 
                             <dt class="col-6" style="font-size: 20px">{{translate('Total:')}}</dt>
-                            <dd class="col-6" style="font-size: 20px">{{ \App\CentralLogics\Helpers::set_symbol($order['order_amount'] + $del_c - $order['coupon_discount_amount'] - $order['extra_discount']) }}</dd>
+                            <dd class="col-6" style="font-size: 20px">{{ \App\CentralLogics\Helpers::set_symbol($subTotal + $del_c + $totalTax + $addOnsCost - $order['coupon_discount_amount'] - $order['extra_discount'] + $add_ons_tax_cost) }}</dd>
 
                             <!-- partial payment-->
                             @if ($order->order_partial_payments->isNotEmpty())

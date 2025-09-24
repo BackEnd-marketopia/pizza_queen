@@ -44,6 +44,28 @@ class OrderController extends Controller
     ) {}
 
     /**
+     * Convert mobile app variations format to POS-compatible format
+     * Mobile format: [{"type": "نوع العجين", "value": "Thin رقيقه"}]
+     * POS format: [{"name": "نوع العجين", "values": {"label": ["Thin رقيقه"]}}]
+     */
+    private function convertMobileVariationsToPOSFormat($mobileVariations) {
+        $posVariations = [];
+        
+        foreach ($mobileVariations as $variation) {
+            if (isset($variation['type']) && isset($variation['value'])) {
+                $posVariations[] = [
+                    'name' => $variation['type'],
+                    'values' => [
+                        'label' => [$variation['value']]
+                    ]
+                ];
+            }
+        }
+        
+        return $posVariations;
+    }
+
+    /**
      * @param Request $request
      * @return JsonResponse
      */
@@ -163,7 +185,7 @@ class OrderController extends Controller
                 'id' => $order_id,
                 'user_id' => $userId,
                 'is_guest' => $userType,
-                'order_amount' => Helpers::set_price($request['order_amount']),
+                'order_amount' => 0, // Will be calculated after processing cart items
                 'coupon_discount_amount' => Helpers::set_price($request->coupon_discount_amount),
                 'coupon_discount_title' => $request->coupon_discount_title == 0 ? null : 'coupon_discount_title',
                 'payment_status' => $paymentStatus,
@@ -185,10 +207,17 @@ class OrderController extends Controller
                 'updated_at' => now('Africa/Cairo')
             ];
             $totalTaxAmount = 0;
+            $totalAddonPrice = 0;
+            $totalAddonTax = 0;
+            $productPrice = 0;
             $free_product = null;
             foreach ($request['cart'] as $c) {
                 $product = $this->product->find($c['product_id']);
                 $branch_product = $this->product_by_branch->where(['product_id' => $c['product_id'], 'branch_id' => $request['branch_id']])->first();
+                
+                // Convert mobile app variations format to POS format for consistency
+                $convertedVariations = $this->convertMobileVariationsToPOSFormat($c['variations'] ?? []);
+                
                 $free_product_data = null;
                 if (isset($c['free_product']) && ($c['free_product']['product_id'] ?? $c['free_product']['productId'] ?? null) != null) {
                     $free_product = $this->product->find($c['free_product']['product_id'] ?? $c['free_product']['productId']);
@@ -211,7 +240,8 @@ class OrderController extends Controller
                     if ($branch_product_free) {
                         $branch_product_free_variations = $branch_product_free->variations;
                         if (count($branch_product_free_variations) && isset($c['free_product']['variations'])) {
-                            $free_variation_data = Helpers::get_varient($branch_product_free_variations, $c['free_product']['variations']);
+                            $convertedFreeVariations = $this->convertMobileVariationsToPOSFormat($c['free_product']['variations']);
+                            $free_variation_data = Helpers::get_varient($branch_product_free_variations, $convertedFreeVariations);
                             $free_product_price += $free_variation_data['price'];
                             $free_variations = $free_variation_data['variations'];
                         }
@@ -263,7 +293,7 @@ class OrderController extends Controller
                     $branch_product_variations = $branch_product->variations;
                     $variations = [];
                     if (count($branch_product_variations)) {
-                        $variation_data = Helpers::get_varient($branch_product_variations, $c['variations']);
+                        $variation_data = Helpers::get_varient($branch_product_variations, $convertedVariations);
                         $price = $branch_product['price'] + $variation_data['price'];
                         $variations = $variation_data['variations'];
                     } else {
@@ -277,7 +307,7 @@ class OrderController extends Controller
                     $product_variations = json_decode($product->variations, true);
                     $variations = [];
                     if (count($product_variations)) {
-                        $variation_data = Helpers::get_varient($product_variations, $c['variations']);
+                        $variation_data = Helpers::get_varient($product_variations, $convertedVariations);
                         $price = $product['price'] + $variation_data['price'];
                         $variations = $variation_data['variations'];
                     } else {
@@ -295,20 +325,22 @@ class OrderController extends Controller
                     if ($branch_product) {
                         $branch_product_variations = $branch_product->variations;
                         if (count($branch_product_variations)) {
-                            $variation_data = Helpers::get_varient($branch_product_variations, $c['variations']);
+                            $variation_data = Helpers::get_varient($branch_product_variations, $convertedVariations);
                             $price = $variation_data['price']; // Only variation price, no base price
                             $variations = $variation_data['variations'];
                         } else {
                             $price = 0; // Base price = 0
+                            $variations = [];
                         }
                     } else {
                         $product_variations = json_decode($product->variations, true);
                         if (count($product_variations)) {
-                            $variation_data = Helpers::get_varient($product_variations, $c['variations']);
+                            $variation_data = Helpers::get_varient($product_variations, $convertedVariations);
                             $price = $variation_data['price']; // Only variation price, no base price
                             $variations = $variation_data['variations'];
                         } else {
                             $price = 0; // Base price = 0
+                            $variations = [];
                         }
                     }
                 }
@@ -338,11 +370,13 @@ class OrderController extends Controller
                     0
                 );
 
-                // For free products, add addon prices to the final price
-                if (isset($c['is_free']) && $c['is_free']) {
-                    $price += $total_addon_price;
-                }
                 /*calculation for addon and addon tax end*/
+
+                // Calculate product subtotal
+                $productSubtotal = ($price - $discount_on_product) * $c['quantity'];
+                $productPrice += $productSubtotal;
+                $totalAddonPrice += $total_addon_price;
+                $totalAddonTax += $total_addon_tax;
 
                 $or_d = [
                     'order_id' => $order_id,
@@ -366,6 +400,23 @@ class OrderController extends Controller
                     'created_at' => now('Africa/Cairo'),
                     'updated_at' => now('Africa/Cairo')
                 ];
+
+                // Log order detail structure for comparison with POS
+                Log::info('API Order Detail Structure', [
+                    'order_id' => $order_id,
+                    'product_id' => $c['product_id'],
+                    'variation_structure' => $variations,
+                    'add_on_ids' => $c['add_on_ids'],
+                    'add_on_qtys' => $c['add_on_qtys'],
+                    'add_on_prices' => $add_on_prices,
+                    'is_free' => isset($c['is_free']) && $c['is_free'] ? true : false,
+                    'price_calculation' => [
+                        'base_price' => $branch_product ? $branch_product->price : $product->price,
+                        'variation_price' => $variation_data['price'] ?? 0,
+                        'final_price' => $price,
+                        'discount' => $discount_on_product
+                    ]
+                ]);
                 // $or_d['product_details']->push($free_products);
                 $totalTaxAmount += $or_d['tax_amount'] * $c['quantity'];
                 $this->order_detail->insert($or_d);
@@ -413,14 +464,23 @@ class OrderController extends Controller
                 }
             }
 
+            // Calculate final order amount like POS system
+            $totalPrice = $productPrice + $totalAddonPrice;
+            $finalOrderAmount = $totalPrice + $totalTaxAmount + $deliveryCharge + $totalAddonTax - $or['coupon_discount_amount'];
+            
             $or['total_tax_amount'] = $totalTaxAmount;
+            $or['order_amount'] = Helpers::set_price($finalOrderAmount);
 
             // Log the calculation details for debugging
             Log::info('Order calculation details', [
                 'order_id' => $order_id,
                 'requested_order_amount' => $request['order_amount'],
-                'calculated_delivery_charge' => $deliveryCharge,
+                'calculated_order_amount' => $finalOrderAmount,
+                'product_price' => $productPrice,
+                'total_addon_price' => $totalAddonPrice,
                 'total_tax_amount' => $totalTaxAmount,
+                'total_addon_tax' => $totalAddonTax,
+                'delivery_charge' => $deliveryCharge,
                 'final_order_amount_in_db' => $or['order_amount']
             ]);
 

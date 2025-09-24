@@ -15,6 +15,7 @@ use App\Model\OrderDetail;
 use App\Model\ProductByBranch;
 use App\Model\Table;
 use App\User;
+use App\Model\BusinessSetting;
 use Brian2694\Toastr\Facades\Toastr;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -23,6 +24,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Validator;
@@ -588,6 +590,21 @@ class POSController extends Controller
                         'created_at' => now('Africa/Cairo'),
                         'updated_at' => now('Africa/Cairo')
                     ];
+
+                    // Log POS order detail structure for comparison with API
+                    Log::info('POS Order Detail Structure', [
+                        'product_id' => $c['id'],
+                        'variation_structure' => $variations,
+                        'add_on_ids' => $addonData['addons'],
+                        'add_on_qtys' => $c['add_on_qtys'],
+                        'add_on_prices' => $c['add_on_prices'],
+                        'is_free' => isset($c['is_free']) && $c['is_free'] ? true : false,
+                        'price_calculation' => [
+                            'base_price' => $c['price'],
+                            'final_price' => $price,
+                            'discount' => $discount
+                        ]
+                    ]);
                     $totalTaxAmount += $orderData['tax_amount'] * $c['quantity'];
                     $totalAddonPrice += $addonData['total_add_on_price'];
 
@@ -669,7 +686,7 @@ class POSController extends Controller
 
                 if ($local != 'en') {
                     $statusKey = Helpers::order_status_message_key('confirmed');
-                    $translatedMessage = $this->business_setting->with('translations')->where(['key' => $statusKey])->first();
+                    $translatedMessage = BusinessSetting::with('translations')->where(['key' => $statusKey])->first();
                     if (isset($translatedMessage->translations)) {
                         foreach ($translatedMessage->translations as $translation) {
                             if ($local == $translation->locale) {
