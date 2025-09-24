@@ -850,14 +850,8 @@ class ProductController extends Controller
             'relationship_exists' => $product->freeProducts()->exists()
         ];
 
-        // Format the products data
-        foreach ($products as $freeProduct) {
-            $freeProduct->category_ids = json_decode($freeProduct->category_ids, true);
-            $freeProduct->variations = json_decode($freeProduct->variations, true);
-            $freeProduct->add_ons = json_decode($freeProduct->add_ons, true);
-            $freeProduct->attributes = json_decode($freeProduct->attributes, true);
-            $freeProduct->choice_options = json_decode($freeProduct->choice_options, true);
-        }
+        // Format the products data using the same formatting as other product APIs
+        $products = Helpers::product_data_formatting($products->toArray(), true);
 
         return response()->json([
             'products' => $products,
