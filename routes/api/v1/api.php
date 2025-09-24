@@ -117,7 +117,7 @@ Route::group(['namespace' => 'Api\V1', 'middleware' => 'localization'], function
         Route::get('search-recommended', [ProductController::class, 'searchRecommendedData']);
     });
 
-    Route::group(['prefix' => 'banners', 'middleware' => 'branch_adder'], function () {
+    Route::group(['prefix' => 'banners'], function () {
         Route::get('/', [BannerController::class, 'getBanners']);
     });
 
@@ -169,6 +169,11 @@ Route::group(['namespace' => 'Api\V1', 'middleware' => 'localization'], function
             Route::post('guest-track', [OrderController::class, 'guestTrackOrder'])->withoutMiddleware(['auth:api', 'is_active']);
             Route::post('details-guest', [OrderController::class, 'getGuestOrderDetails'])->withoutMiddleware(['auth:api', 'is_active']);
         });
+
+        Route::group(['prefix' => 'table'], function () {
+            Route::post('order/place', [TableController::class, 'placeOrder'])->middleware('branch_adder');
+        });
+
         // Chatting
         Route::group(['prefix' => 'message'], function () {
             //customer-admin

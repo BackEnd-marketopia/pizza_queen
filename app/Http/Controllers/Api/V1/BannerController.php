@@ -19,7 +19,7 @@ class BannerController extends Controller
      */
     public function getBanners(): JsonResponse
     {
-        $banners = $this->banner->with(['product.rating', 'product.branch_product'])->active()->get();
+        $banners = $this->banner->with(['product.rating'])->active()->get();
         foreach ($banners as $banner) {
             $banner['product'] = isset($banner['product']) ? Helpers::product_data_formatting($banner['product']) : null;
             $banner['product'] = isset($banner['product']) ? $this->is_available($banner['product']) :  null;

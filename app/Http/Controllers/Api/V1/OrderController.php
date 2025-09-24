@@ -8,6 +8,7 @@ use App\CentralLogics\OrderLogic;
 use App\Http\Controllers\Controller;
 use App\Model\AddOn;
 use App\Model\Branch;
+use Illuminate\Support\Facades\Log;
 use App\Model\BusinessSetting;
 use App\Model\CustomerAddress;
 use App\Model\DMReview;
@@ -78,6 +79,7 @@ class OrderController extends Controller
      */
     public function placeOrder(Request $request): JsonResponse
     {
+        Log::info('Place order request', $request->all());
         $validator = Validator::make($request->all(), [
             'order_amount' => 'required',
             'payment_method' => 'required',
@@ -188,11 +190,11 @@ class OrderController extends Controller
                 $product = $this->product->find($c['product_id']);
                 $branch_product = $this->product_by_branch->where(['product_id' => $c['product_id'], 'branch_id' => $request['branch_id']])->first();
                 $free_product_data = null;
-                if (isset($c['free_product']) && $c['free_product']['productId'] != null) {
-                    $free_product = $this->product->find($c['free_product']['productId']);
+                if (isset($c['free_product']) && ($c['free_product']['product_id'] ?? $c['free_product']['productId'] ?? null) != null) {
+                    $free_product = $this->product->find($c['free_product']['product_id'] ?? $c['free_product']['productId']);
                     $free_product->price = $c['free_product']['price'] ?? 0;
                     $free_product['qty'] = $c['free_product']['qty'] ?? 0;
-                    $branch_product_free = $this->product_by_branch->where(['product_id' => $c['free_product']['productId'], 'branch_id' => $request['branch_id']])->first();
+                    $branch_product_free = $this->product_by_branch->where(['product_id' => $c['free_product']['product_id'] ?? $c['free_product']['productId'], 'branch_id' => $request['branch_id']])->first();
                     if ($branch_product_free && ($branch_product_free->stock_type == 'daily' || $branch_product_free->stock_type == 'fixed')) {
                         $available_stock_free = $branch_product_free->stock - $branch_product_free->sold_quantity;
                         if ($available_stock_free < ($c['free_product']['qty'] ?? 0)) {
@@ -362,7 +364,7 @@ class OrderController extends Controller
                 if ($free_product_data && $free_product_data['qty'] > 0) {
                     $free_or_d = [
                         'order_id' => $order_id,
-                        'product_id' => $c['free_product']['productId'],
+                        'product_id' => $c['free_product']['product_id'] ?? $c['free_product']['productId'],
                         'product_details' => $free_product,
                         'free_product' => null, // No free product for the free product itself
                         'quantity' => $free_product_data['qty'],
@@ -536,6 +538,7 @@ class OrderController extends Controller
                 'order_id' => $order_id
             ], 200);
         } catch (\Exception $e) {
+            Log::error('Place order error', ['error' => $e->getMessage(), 'request' => $request->all()]);
             return response()->json(['message' => $e->getMessage()]);
         }
     }
