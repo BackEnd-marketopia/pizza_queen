@@ -271,14 +271,14 @@
                                             <div class="media gap-3 w-max-content">
 
                                                 <img class="img-fluid avatar avatar-lg"
-                                                    src="{{ $free_product['image'] ? asset('storage/app/public/product/' . $free_product['image']) : asset('public/assets/admin/img/160x160/img2.jpg') }}"
+                                                    src="{{ (isset($free_product['image']) && $free_product['image']) ? asset('storage/app/public/product/' . $free_product['image']) : asset('public/assets/admin/img/160x160/img2.jpg') }}"
                                                     alt="Image Description">
                                                 <div class="media-body text-dark fz-12">
-                                                    <h6 class="text-capitalize">{{$free_product['name']}}</h6>
+                                                    <h6 class="text-capitalize">{{$free_product['name'] ?? 'N/A'}}</h6>
                                                     <div class="d-flex gap-2">
                                                         <div class="d-flex gap-2">
                                                             <span class="">{{translate('Qty')}} : </span>
-                                                            <span>{{$free_product['qty']}}</span>
+                                                            <span>{{$free_product['qty'] ?? 0}}</span>
                                                         </div>
                                                         <br>
                                                     </div>
