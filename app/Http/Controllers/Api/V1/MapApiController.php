@@ -69,9 +69,14 @@ class MapApiController extends Controller
         }
 
         $apiKey = Helpers::get_business_settings('map_api_server_key');
-        $response = Http::get('https://maps.googleapis.com/maps/api/distancematrix/json?origins=' . $request['origin_lat'] . ',' . $request['origin_lng'] . '&destinations=' . $request['destination_lat'] . ',' . $request['destination_lng'] . '&key=' . $apiKey);
 
-        return $response->json();
+        try {
+            $response = Http::withOptions(['verify' => false])->get('https://maps.googleapis.com/maps/api/distancematrix/json?origins=' . $request['origin_lat'] . ',' . $request['origin_lng'] . '&destinations=' . $request['destination_lat'] . ',' . $request['destination_lng'] . '&key=' . $apiKey);
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::error('Error fetching distance data: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to fetch distance data'], 500);
+        }
     }
 
     /**
@@ -124,10 +129,14 @@ class MapApiController extends Controller
         }
 
         $apiKey = Helpers::get_business_settings('map_api_server_key');
-        $response = Http::get('https://maps.googleapis.com/maps/api/geocode/json?latlng=' . $request->lat . ',' . $request->lng . '&key=' . $apiKey);
-        dd( $response);
 
-        return $response->json();
+        try {
+            $response = Http::withOptions(['verify' => false])->get('https://maps.googleapis.com/maps/api/geocode/json?latlng=' . $request->lat . ',' . $request->lng . '&key=' . $apiKey);
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::error('Error fetching geocode data: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to fetch geocode data'], 500);
+        }
     }
 }
 
