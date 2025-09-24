@@ -187,23 +187,71 @@ class OrderController extends Controller
             foreach ($request['cart'] as $c) {
                 $product = $this->product->find($c['product_id']);
                 $branch_product = $this->product_by_branch->where(['product_id' => $c['product_id'], 'branch_id' => $request['branch_id']])->first();
-                if ($c['free_product']['productId'] != null) {
+                $free_product_data = null;
+                if (isset($c['free_product']) && $c['free_product']['productId'] != null) {
                     $free_product = $this->product->find($c['free_product']['productId']);
                     $free_product->price = $c['free_product']['price'] ?? 0;
                     $free_product['qty'] = $c['free_product']['qty'] ?? 0;
                     $branch_product_free = $this->product_by_branch->where(['product_id' => $c['free_product']['productId'], 'branch_id' => $request['branch_id']])->first();
-                    if ($branch_product->stock_type == 'daily' || $branch_product->stock_type == 'fixed') {
+                    if ($branch_product_free && ($branch_product_free->stock_type == 'daily' || $branch_product_free->stock_type == 'fixed')) {
                         $available_stock_free = $branch_product_free->stock - $branch_product_free->sold_quantity;
-                        if ($available_stock_free < $c['free_product']->quantity) {
-                            return response()->json(['errors' => [['code' => 'stock', 'message' => translate('stock limit exceeded')]]], 403);
+                        if ($available_stock_free < ($c['free_product']['qty'] ?? 0)) {
+                            return response()->json(['errors' => [['code' => 'stock', 'message' => translate('stock limit exceeded for free product')]]], 403);
                         }
                     }
-                    //daily and fixed stock quantity validation
-                    if ($branch_product->stock_type == 'daily' || $branch_product->stock_type == 'fixed') {
-                        $available_stock = $branch_product->stock - $branch_product->sold_quantity;
-                        if ($available_stock < $c['quantity']) {
-                            return response()->json(['errors' => [['code' => 'stock', 'message' => translate('stock limit exceeded')]]], 403);
+                    // Calculate variations and addons for free product
+                    $free_product_price = $free_product->price;
+                    $free_variations = [];
+                    $free_add_on_prices = [];
+                    $free_add_on_taxes = [];
+                    $free_total_addon_tax = 0;
+
+                    if ($branch_product_free) {
+                        $branch_product_free_variations = $branch_product_free->variations;
+                        if (count($branch_product_free_variations) && isset($c['free_product']['variations'])) {
+                            $free_variation_data = Helpers::get_varient($branch_product_free_variations, $c['free_product']['variations']);
+                            $free_product_price += $free_variation_data['price'];
+                            $free_variations = $free_variation_data['variations'];
                         }
+                    }
+
+                    if (isset($c['free_product']['add_on_ids']) && count($c['free_product']['add_on_ids'])) {
+                        foreach ($c['free_product']['add_on_ids'] as $key => $id) {
+                            $addon = AddOn::find($id);
+                            $free_add_on_prices[] = $addon['price'];
+                            $free_add_on_taxes[] = ($addon['price'] * $addon['tax']) / 100;
+                        }
+                        $free_total_addon_tax = array_reduce(
+                            array_map(function ($a, $b) {
+                                return $a * $b;
+                            }, $c['free_product']['add_on_qtys'], $free_add_on_taxes),
+                            function ($carry, $item) {
+                                return $carry + $item;
+                            },
+                            0
+                        );
+                        $free_product_price += array_sum($free_add_on_prices);
+                    }
+
+                    $free_product_data = [
+                        'product' => $free_product,
+                        'price' => $free_product_price,
+                        'qty' => $c['free_product']['qty'] ?? 0,
+                        'variations' => $free_variations,
+                        'add_on_ids' => $c['free_product']['add_on_ids'] ?? [],
+                        'add_on_qtys' => $c['free_product']['add_on_qtys'] ?? [],
+                        'add_on_prices' => $free_add_on_prices,
+                        'add_on_taxes' => $free_add_on_taxes,
+                        'add_on_tax_amount' => $free_total_addon_tax,
+                        'tax_amount' => Helpers::tax_calculate($free_product, $free_product_price),
+                    ];
+                }
+
+                //daily and fixed stock quantity validation for main product
+                if ($branch_product && ($branch_product->stock_type == 'daily' || $branch_product->stock_type == 'fixed')) {
+                    $available_stock = $branch_product->stock - $branch_product->sold_quantity;
+                    if ($available_stock < $c['quantity']) {
+                        return response()->json(['errors' => [['code' => 'stock', 'message' => translate('stock limit exceeded')]]], 403);
                     }
                 }
 
@@ -288,7 +336,7 @@ class OrderController extends Controller
                     'order_id' => $order_id,
                     'product_id' => $c['product_id'],
                     'product_details' => $product,
-                    'free_product'  => $free_product ? json_encode($free_product) : null,
+                    'free_product'  => $free_product_data ? json_encode($free_product_data) : null,
                     'quantity' => $c['quantity'],
                     'price' => $price,
                     'tax_amount' => Helpers::tax_calculate($product, $price),
@@ -310,10 +358,44 @@ class OrderController extends Controller
                 $totalTaxAmount += $or_d['tax_amount'] * $c['quantity'];
                 $this->order_detail->insert($or_d);
 
+                // Insert order detail for free product if exists
+                if ($free_product_data && $free_product_data['qty'] > 0) {
+                    $free_or_d = [
+                        'order_id' => $order_id,
+                        'product_id' => $c['free_product']['productId'],
+                        'product_details' => $free_product,
+                        'free_product' => null, // No free product for the free product itself
+                        'quantity' => $free_product_data['qty'],
+                        'price' => $free_product_data['price'],
+                        'tax_amount' => $free_product_data['tax_amount'],
+                        'discount_on_product' => 0, // Assuming no discount for free product
+                        'discount_type' => 'discount_on_product',
+                        'variant' => json_encode($free_product_data['variations']),
+                        'variation' => json_encode($free_product_data['variations']),
+                        'add_on_ids' => json_encode($free_product_data['add_on_ids']),
+                        'add_on_qtys' => json_encode($free_product_data['add_on_qtys']),
+                        'add_on_prices' => json_encode($free_product_data['add_on_prices']),
+                        'add_on_taxes' => json_encode($free_product_data['add_on_taxes']),
+                        'add_on_tax_amount' => $free_product_data['add_on_tax_amount'],
+                        'is_free' => true, // Mark as free
+                        'free_for_product_id' => $c['product_id'], // Reference to the main product
+                        'created_at' => now('Africa/Cairo'),
+                        'updated_at' => now('Africa/Cairo')
+                    ];
+                    $totalTaxAmount += $free_or_d['tax_amount'] * $free_product_data['qty'];
+                    $this->order_detail->insert($free_or_d);
+
+                    // Update stock for free product
+                    if ($branch_product_free && ($branch_product_free->stock_type == 'daily' || $branch_product_free->stock_type == 'fixed')) {
+                        $branch_product_free->sold_quantity += $free_product_data['qty'];
+                        $branch_product_free->save();
+                    }
+                }
+
                 $this->product->find($c['product_id'])->increment('popularity_count');
 
-                //daily and fixed stock quantity update
-                if ($branch_product->stock_type == 'daily' || $branch_product->stock_type == 'fixed') {
+                //daily and fixed stock quantity update for main product
+                if ($branch_product && ($branch_product->stock_type == 'daily' || $branch_product->stock_type == 'fixed')) {
                     $branch_product->sold_quantity += $c['quantity'];
                     $branch_product->save();
                 }
