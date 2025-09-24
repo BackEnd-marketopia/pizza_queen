@@ -22,7 +22,7 @@ class BannerController extends Controller
         $banners = $this->banner->with(['product.rating'])->active()->get();
         foreach ($banners as $banner) {
             $banner['product'] = isset($banner['product']) ? Helpers::product_data_formatting($banner['product']) : null;
-            $banner['product'] = isset($banner['product']) ? $this->is_available($banner['product']) :  null;
+            $banner['product'] = isset($banner['product']) && is_array($banner['product']) ? $this->is_available([$banner['product']])[0] : $banner['product'];
         }
 
         return response()->json($banners, 200);
