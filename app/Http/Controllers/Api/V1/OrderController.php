@@ -230,13 +230,14 @@ class OrderController extends Controller
                             return response()->json(['errors' => [['code' => 'stock', 'message' => translate('stock limit exceeded for free product')]]], 403);
                         }
                     }
-                    // Calculate variations and addons for free product
-                    $free_product_price = $free_product->price;
+                    // Calculate variations and addons for free product like POS
+                    $free_product_price = 0; // Base price is 0 for free products
                     $free_variations = [];
                     $free_add_on_prices = [];
                     $free_add_on_taxes = [];
                     $free_total_addon_tax = 0;
 
+                    // Add variation price to the free product
                     if ($branch_product_free) {
                         $branch_product_free_variations = $branch_product_free->variations;
                         if (count($branch_product_free_variations) && isset($c['free_product']['variations'])) {
@@ -247,6 +248,7 @@ class OrderController extends Controller
                         }
                     }
 
+                    // Add addon prices to free product price (like POS does)
                     if (isset($c['free_product']['add_on_ids']) && count($c['free_product']['add_on_ids'])) {
                         foreach ($c['free_product']['add_on_ids'] as $key => $id) {
                             $addon = AddOn::find($id);
@@ -262,7 +264,13 @@ class OrderController extends Controller
                             },
                             0
                         );
+                        // Add free product addons to total addon price AND to free product price
+                        $totalAddonPrice += array_sum($free_add_on_prices);
+                        $totalAddonTax += $free_total_addon_tax;
                         $free_product_price += array_sum($free_add_on_prices);
+                        
+                        // Free product does NOT contribute to productPrice (Items Price)
+                        // Only addons are counted in Addon Cost
                     }
 
                     $free_product_data = [
@@ -319,40 +327,8 @@ class OrderController extends Controller
                     ];
                 }
 
-                // Handle free products - set base price to 0 but keep variations and add-ons
-                if (isset($c['is_free']) && $c['is_free']) {
-                    // Log the mobile app's incorrect price for debugging
-                    Log::warning('Free product price correction', [
-                        'product_id' => $c['product_id'],
-                        'mobile_sent_price' => $c['price'] ?? 'not_sent',
-                        'mobile_sent_order_amount' => $request['order_amount'],
-                        'action' => 'Forcing base price to 0 for free product'
-                    ]);
-                    
-                    // For free products, base price should always be 0
-                    // Only charge for variations and addons
-                    $price = 0; // Force base price to 0 for free products
-                    
-                    if ($branch_product) {
-                        $branch_product_variations = $branch_product->variations;
-                        if (count($branch_product_variations)) {
-                            $variation_data = Helpers::get_varient($branch_product_variations, $convertedVariations);
-                            $price += $variation_data['price']; // Add variation price to 0 base
-                            $variations = $variation_data['variations'];
-                        } else {
-                            $variations = [];
-                        }
-                    } else {
-                        $product_variations = json_decode($product->variations, true);
-                        if (count($product_variations)) {
-                            $variation_data = Helpers::get_varient($product_variations, $convertedVariations);
-                            $price += $variation_data['price']; // Add variation price to 0 base
-                            $variations = $variation_data['variations'];
-                        } else {
-                            $variations = [];
-                        }
-                    }
-                }
+                // The main product is NOT free, only the attached free_product is free
+                // No need to set price to 0 for main product
 
                 $discount_on_product = Helpers::discount_calculate($discount_data, $price);
 
@@ -381,7 +357,7 @@ class OrderController extends Controller
 
                 /*calculation for addon and addon tax end*/
 
-                // Calculate product subtotal
+                // Calculate product subtotal like POS
                 $productSubtotal = ($price - $discount_on_product) * $c['quantity'];
                 $productPrice += $productSubtotal;
                 $totalAddonPrice += $total_addon_price;
@@ -404,8 +380,8 @@ class OrderController extends Controller
                     'add_on_prices' => json_encode($add_on_prices),
                     'add_on_taxes' => json_encode($add_on_taxes),
                     'add_on_tax_amount' => $total_addon_tax,
-                    'is_free' => isset($c['is_free']) && $c['is_free'] ? true : false,
-                    'free_for_product_id' => isset($c['free_for_product_id']) ? (int)$c['free_for_product_id'] : null,
+                    'is_free' => false, // Main product is not free
+                    'free_for_product_id' => null,
                     'created_at' => now('Africa/Cairo'),
                     'updated_at' => now('Africa/Cairo')
                 ];
@@ -448,7 +424,7 @@ class OrderController extends Controller
                         'product_details' => $free_product,
                         'free_product' => null, // No free product for the free product itself
                         'quantity' => $free_product_data['qty'],
-                        'price' => $free_product_data['price'],
+                        'price' => 0, // Free product price should be 0 for Items Price calculation
                         'tax_amount' => $free_product_data['tax_amount'],
                         'discount_on_product' => 0, // Assuming no discount for free product
                         'discount_type' => 'discount_on_product',
@@ -487,23 +463,6 @@ class OrderController extends Controller
             $totalPrice = $productPrice + $totalAddonPrice;
             $finalOrderAmount = $totalPrice + $totalTaxAmount + $deliveryCharge + $totalAddonTax - $or['coupon_discount_amount'];
             
-            // Validate against request amount (allow small differences due to rounding)
-            $requestedAmount = (float)$request['order_amount'];
-            $calculatedAmountWithoutDelivery = $finalOrderAmount - $deliveryCharge;
-            
-            if (abs($requestedAmount - $calculatedAmountWithoutDelivery) > 1.0) {
-                Log::warning('Order amount mismatch detected - Using calculated amount', [
-                    'requested_amount' => $requestedAmount,
-                    'calculated_amount_without_delivery' => $calculatedAmountWithoutDelivery,
-                    'difference' => abs($requestedAmount - $calculatedAmountWithoutDelivery),
-                    'order_id' => $order_id,
-                    'action' => 'Using server-calculated amount instead of mobile request'
-                ]);
-                
-                // Override the requested amount with the calculated one for accurate totals
-                $finalOrderAmount = $calculatedAmountWithoutDelivery + $deliveryCharge;
-            }
-            
             $or['total_tax_amount'] = $totalTaxAmount;
             $or['order_amount'] = Helpers::set_price($finalOrderAmount);
 
@@ -520,7 +479,6 @@ class OrderController extends Controller
                     'delivery_charge' => $deliveryCharge,
                     'coupon_discount' => $or['coupon_discount_amount'],
                     'subtotal' => $totalPrice,
-                    'before_delivery' => $calculatedAmountWithoutDelivery,
                     'final_with_delivery' => $finalOrderAmount
                 ],
                 'final_order_amount_in_db' => $or['order_amount'],

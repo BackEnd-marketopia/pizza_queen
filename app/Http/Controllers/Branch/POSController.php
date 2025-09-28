@@ -480,14 +480,14 @@ class POSController extends Controller
 
             $address = [
                 'address_type' => 'Home',
-                'contact_person_name' => $addressData['contact_person_name'],
-                'contact_person_number' => $addressData['contact_person_number'],
-                'address' => $addressData['address'],
-                'floor' => $addressData['floor'],
-                'road' => $addressData['road'],
-                'house' => $addressData['house'],
-                'longitude' => (string)$addressData['longitude'],
-                'latitude' => (string)$addressData['latitude'],
+                'contact_person_name' => substr($addressData['contact_person_name'] ?? '', 0, 100),
+                'contact_person_number' => substr($addressData['contact_person_number'] ?? '', 0, 20),
+                'address' => substr($addressData['address'] ?? '', 0, 250),
+                'floor' => substr($addressData['floor'] ?? '', 0, 10),
+                'road' => substr($addressData['road'] ?? '', 0, 50),
+                'house' => substr($addressData['house'] ?? '', 0, 50),
+                'longitude' => (string)($addressData['longitude'] ?? ''),
+                'latitude' => (string)($addressData['latitude'] ?? ''),
                 'user_id' => session()->get('customer_id'),
                 'is_guest' => 0,
             ];
@@ -501,6 +501,8 @@ class POSController extends Controller
         $productPrice = 0;
         $orderDetails = [];
 
+
+
         $orderId = 100000 + $this->order->all()->count() + 1;
         if ($this->order->find($orderId)) {
             $orderId = $this->order->orderBy('id', 'DESC')->first()->id + 1;
@@ -513,7 +515,7 @@ class POSController extends Controller
         $order->coupon_discount_title = $request->coupon_discount_title == 0 ? null : 'coupon_discount_title';
         $order->payment_status = ($orderType == 'take_away') ? 'paid' : (($orderType == 'dine_in' && $request->type != 'pay_after_eating') ? 'paid' : 'unpaid');
         $order->order_status = $orderType == 'take_away' ? 'delivered' : 'confirmed';
-        $order->order_type = ($orderType == 'take_away') ? 'pos' : (($orderType == 'dine_in') ? 'dine_in' : (($orderType == 'home_delivery') ? 'delivery' : null));
+        $order->order_type = 'pos'; // All POS orders should be marked as 'pos' regardless of delivery type
         $order->coupon_code = $request->coupon_code ?? null;
         $order->payment_method = $request->type;
         $order->transaction_reference = $request->transaction_reference ?? null;
@@ -573,7 +575,7 @@ class POSController extends Controller
 
                     $orderData = [
                         'product_id' => $c['id'],
-                        'product_details' => $product,
+                        'product_details' => json_encode($product),
                         'quantity' => $c['quantity'],
                         'price' => $price,
                         'tax_amount' => Helpers::tax_calculate($product, $price),
@@ -591,20 +593,7 @@ class POSController extends Controller
                         'updated_at' => now('Africa/Cairo')
                     ];
 
-                    // Log POS order detail structure for comparison with API
-                    Log::info('POS Order Detail Structure', [
-                        'product_id' => $c['id'],
-                        'variation_structure' => $variations,
-                        'add_on_ids' => $addonData['addons'],
-                        'add_on_qtys' => $c['add_on_qtys'],
-                        'add_on_prices' => $c['add_on_prices'],
-                        'is_free' => isset($c['is_free']) && $c['is_free'] ? true : false,
-                        'price_calculation' => [
-                            'base_price' => $c['price'],
-                            'final_price' => $price,
-                            'discount' => $discount
-                        ]
-                    ]);
+
                     $totalTaxAmount += $orderData['tax_amount'] * $c['quantity'];
                     $totalAddonPrice += $addonData['total_add_on_price'];
 
@@ -935,7 +924,7 @@ class POSController extends Controller
 
         if ($request->has('latitude') && $request->has('longitude')) {
             $apiKey = Helpers::get_business_settings('map_api_server_key');
-            $response = Http::get('https://maps.googleapis.com/maps/api/distancematrix/json?origins=' . $originLat . ',' . $originLng . '&destinations=' . $destinationLat . ',' . $destinationLng . '&key=' . $apiKey);
+            $response = Http::withoutVerifying()->get('https://maps.googleapis.com/maps/api/distancematrix/json?origins=' . $originLat . ',' . $originLng . '&destinations=' . $destinationLat . ',' . $destinationLng . '&key=' . $apiKey);
 
             $data = json_decode($response, true);
             $distanceValue = $data['rows'][0]['elements'][0]['distance']['value'];
@@ -979,7 +968,7 @@ class POSController extends Controller
         ]);
 
         $apiKey = Helpers::get_business_settings('map_api_server_key');
-        $response = Http::get('https://maps.googleapis.com/maps/api/distancematrix/json?origins=' . $request['origin_lat'] . ',' . $request['origin_lng'] . '&destinations=' . $request['destination_lat'] . ',' . $request['destination_lng'] . '&key=' . $apiKey);
+        $response = Http::withoutVerifying()->get('https://maps.googleapis.com/maps/api/distancematrix/json?origins=' . $request['origin_lat'] . ',' . $request['origin_lng'] . '&destinations=' . $request['destination_lat'] . ',' . $request['destination_lng'] . '&key=' . $apiKey);
 
         return $response->json();
     }

@@ -510,14 +510,14 @@ class POSController extends Controller
 
             $address = [
                 'address_type' => 'Home',
-                'contact_person_name' => $address_data['contact_person_name'],
-                'contact_person_number' => $address_data['contact_person_number'],
-                'address' => $address_data['address'],
-                'floor' => $address_data['floor'],
-                'road' => $address_data['road'],
-                'house' => $address_data['house'],
-                'longitude' => (string)$address_data['longitude'],
-                'latitude' => (string)$address_data['latitude'],
+                'contact_person_name' => substr($address_data['contact_person_name'] ?? '', 0, 100),
+                'contact_person_number' => substr($address_data['contact_person_number'] ?? '', 0, 20),
+                'address' => substr($address_data['address'] ?? '', 0, 250),
+                'floor' => substr($address_data['floor'] ?? '', 0, 10),
+                'road' => substr($address_data['road'] ?? '', 0, 50),
+                'house' => substr($address_data['house'] ?? '', 0, 50),
+                'longitude' => (string)($address_data['longitude'] ?? ''),
+                'latitude' => (string)($address_data['latitude'] ?? ''),
                 'user_id' => session()->get('customer_id'),
                 'is_guest' => 0,
             ];
@@ -543,7 +543,7 @@ class POSController extends Controller
         $order->coupon_discount_title = $request->coupon_discount_title == 0 ? null : 'coupon_discount_title';
         $order->payment_status = ($order_type == 'take_away') ? 'paid' : (($order_type == 'dine_in' && $request->type != 'pay_after_eating') ? 'paid' : 'unpaid');
         $order->order_status = $order_type == 'take_away' ? 'delivered' : 'confirmed';
-        $order->order_type = ($order_type == 'take_away') ? 'pos' : (($order_type == 'dine_in') ? 'dine_in' : (($order_type == 'home_delivery') ? 'delivery' : null));
+        $order->order_type = 'pos'; // All POS orders should be marked as 'pos' regardless of delivery type
         $order->coupon_code = $request->coupon_code ?? null;
         $order->payment_method = $request->type;
         $order->transaction_reference = $request->transaction_reference ?? null;
@@ -606,7 +606,7 @@ class POSController extends Controller
 
                     $or_d = [
                         'product_id' => $c['id'],
-                        'product_details' => $product,
+                        'product_details' => json_encode($product),
                         'quantity' => $c['quantity'],
                         'price' => $price,
                         'tax_amount' => Helpers::tax_calculate($product, $price),
@@ -678,7 +678,7 @@ class POSController extends Controller
                 Toastr::success(translate('order_placed_successfully'));
 
                 //send notification to kitchen
-                if ($order->order_type == 'dine_in') {
+                if ($order_type == 'dine_in') {
                     $notification = $this->notification;
                     $notification->title = "You have a new order from POS - (Order Confirmed). ";
                     $notification->description = $order->id;
@@ -694,7 +694,7 @@ class POSController extends Controller
                     }
                 }
                 //send notification to customer for home delivery
-                if ($order->order_type == 'delivery') {
+                if ($order_type == 'home_delivery') {
                     $message = Helpers::order_status_update_message('confirmed');
                     $customer = $this->user->find($order->user_id);
                     $customerFcmToken = $customer?->cm_firebase_token;
@@ -1058,7 +1058,7 @@ class POSController extends Controller
 
         if ($request->has('latitude') && $request->has('longitude')) {
             $api_key = Helpers::get_business_settings('map_api_server_key');
-            $response = Http::get('https://maps.googleapis.com/maps/api/distancematrix/json?origins=' . $origin_lat . ',' . $origin_lng . '&destinations=' . $destination_lat . ',' . $destination_lng . '&key=' . $api_key);
+            $response = Http::withoutVerifying()->get('https://maps.googleapis.com/maps/api/distancematrix/json?origins=' . $origin_lat . ',' . $origin_lng . '&destinations=' . $destination_lat . ',' . $destination_lng . '&key=' . $api_key);
 
             //return $response->json();
             $data = json_decode($response, true);
@@ -1103,7 +1103,7 @@ class POSController extends Controller
         ]);
 
         $api_key = Helpers::get_business_settings('map_api_server_key');
-        $response = Http::get('https://maps.googleapis.com/maps/api/distancematrix/json?origins=' . $request['origin_lat'] . ',' . $request['origin_lng'] . '&destinations=' . $request['destination_lat'] . ',' . $request['destination_lng'] . '&key=' . $api_key);
+        $response = Http::withoutVerifying()->get('https://maps.googleapis.com/maps/api/distancematrix/json?origins=' . $request['origin_lat'] . ',' . $request['origin_lng'] . '&destinations=' . $request['destination_lat'] . ',' . $request['destination_lng'] . '&key=' . $api_key);
 
         return $response->json();
     }

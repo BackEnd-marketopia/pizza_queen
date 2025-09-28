@@ -607,7 +607,7 @@ class CustomerAuthController extends Controller
         $firebaseOTPVerification = Helpers::get_business_settings('firebase_otp_verification');
         $webApiKey = $firebaseOTPVerification ? $firebaseOTPVerification['web_api_key'] : '';
 
-        $response = Http::post('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPhoneNumber?key=' . $webApiKey, [
+        $response = Http::withoutVerifying()->post('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPhoneNumber?key=' . $webApiKey, [
             'sessionInfo' => $request->sessionInfo,
             'phoneNumber' => $request->phoneNumber,
             'code' => $request->code,
@@ -850,7 +850,7 @@ class CustomerAuthController extends Controller
 
                 $redirect_uri = $apple_login['redirect_url'] ?? 'www.example.com/apple-callback';
 
-                $res = Http::asForm()->post('https://appleid.apple.com/auth/token', [
+                $res = Http::asForm()->withoutVerifying()->post('https://appleid.apple.com/auth/token', [
                     'grant_type' => 'authorization_code',
                     'code' => $uniqueId,
                     'redirect_uri' => $redirect_uri,
