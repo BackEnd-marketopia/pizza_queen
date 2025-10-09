@@ -2803,4 +2803,7 @@
   'Product distribution updated successfully' => 'Product distribution updated successfully',
   'Error loading product details' => 'Error loading product details',
   'Error loading free products' => 'Error loading free products',
+  'Product Not Found' => 'Product Not Found',
+  'This Product Not Available to this Feature' => 'This Product Not Available to this Feature',
+  'No free products available for this item' => 'No free products available for this item',
 );

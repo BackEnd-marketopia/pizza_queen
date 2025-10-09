@@ -20,6 +20,10 @@ class localization
 
         // set laravel localization
         App::setLocale($local);
+        
+        // Also set in session for consistency with translate() function
+        session(['local' => $local]);
+        
         // continue request
         return $next($request);
     }
