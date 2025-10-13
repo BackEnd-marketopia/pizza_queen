@@ -806,14 +806,14 @@ class ProductController extends Controller
         $product = Product::find($id);
         if (!$product) {
             return response()->json([
-                'message' => 'Product Not Found',
+                'message' => translate('Product Not Found'),
                 'debug' => ['product_id' => $id]
             ], 404);
         }
 
         if (!$product->has_free) {
             return response()->json([
-                'message' => 'This Product Not Available to this Feature',
+                'message' => translate('This Product Not Available to this Feature'),
                 'debug' => [
                     'product_id' => $id,
                     'product_name' => $product->name,
@@ -830,7 +830,7 @@ class ProductController extends Controller
         // If has_free is true but no free products are available, return error
         if ($products->isEmpty()) {
             return response()->json([
-                'message' => 'No free products available for this item',
+                'message' => translate('No free products available for this item'),
                 'debug' => [
                     'main_product_id' => $id,
                     'main_product_name' => $product->name,

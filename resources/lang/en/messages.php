@@ -2803,5 +2803,4 @@
   'Product distribution updated successfully' => 'Product distribution updated successfully',
   'Error loading product details' => 'Error loading product details',
   'Error loading free products' => 'Error loading free products',
-  'successfully_removed' => 'Successfully removed',
 );
