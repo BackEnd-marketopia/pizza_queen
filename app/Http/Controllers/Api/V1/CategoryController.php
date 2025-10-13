@@ -21,7 +21,10 @@ class CategoryController extends Controller
      */
     public function getCategories(): JsonResponse
     {
-        $categories = Cache::rememberForever(CATEGORIES_WITH_CHILDES, function () {
+        $locale = app()->getLocale();
+        $cacheKey = CATEGORIES_WITH_CHILDES . '_' . $locale;
+        
+        $categories = Cache::rememberForever($cacheKey, function () {
             return $this->category
                 ->with('childes')
                 ->where(['position' => 0, 'status' => 1])

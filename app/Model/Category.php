@@ -43,7 +43,10 @@ class Category extends Model
         if (auth('admin')->check() || auth('branch')->check()) {
             return $name;
         }
-        return $this->translations[0]->value ?? $name;
+        
+        // Get translation for current locale
+        $translation = $this->translations->where('key', 'name')->first();
+        return $translation ? $translation->value : $name;
     }
 
     public function getImageFullPathAttribute(): string
