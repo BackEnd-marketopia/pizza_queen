@@ -154,11 +154,15 @@ class Helpers
 
                 if (count($item['translations'])) {
                     foreach ($item['translations'] as $translation) {
-                        if ($translation->key == 'name') {
-                            $item['name'] = $translation->value;
+                        // Handle both object and array formats
+                        $key = is_object($translation) ? $translation->key : (isset($translation['key']) ? $translation['key'] : null);
+                        $value = is_object($translation) ? $translation->value : (isset($translation['value']) ? $translation['value'] : null);
+                        
+                        if ($key == 'name' && $value) {
+                            $item['name'] = $value;
                         }
-                        if ($translation->key == 'description') {
-                            $item['description'] = $translation->value;
+                        if ($key == 'description' && $value) {
+                            $item['description'] = $value;
                         }
                     }
                 }
@@ -194,17 +198,21 @@ class Helpers
 
             if (count($data['translations']) > 0) {
                 foreach ($data['translations'] as $translation) {
-                    if ($translation->key == 'name') {
-                        $data['name'] = $translation->value;
+                    // Handle both object and array formats
+                    $key = is_object($translation) ? $translation->key : (isset($translation['key']) ? $translation['key'] : null);
+                    $value = is_object($translation) ? $translation->value : (isset($translation['value']) ? $translation['value'] : null);
+                    
+                    if ($key == 'name' && $value) {
+                        $data['name'] = $value;
                     }
-                    if ($translation->key == 'description') {
-                        $data['description'] = $translation->value;
+                    if ($key == 'description' && $value) {
+                        $data['description'] = $value;
                     }
                 }
             }
         }
 
-        return $data;
+        return is_array($data) ? $data : $data->toArray();
     }
 
     public static function order_data_formatting($data, $multi_data = false)
@@ -237,12 +245,22 @@ class Helpers
             foreach ($data->details as $detail) {
                 if($detail->free_product != null)
                {
-                    $detail->free_product = json_decode($detail->free_product ?? null);
-                    $detail->free_product->variations = json_decode($detail->free_product->variations ?? null);
-                    $detail->free_product->attributes = json_decode($detail->free_product->attributes ?? null);
-                    $detail->free_product->category_ids = json_decode($detail->free_product->category_ids ?? null);
-                    $detail->free_product->choice_options = json_decode($detail->free_product->choice_options ?? null);
-                    $detail->free_product->add_ons = json_decode($detail->free_product->add_ons ?? null);
+                    $detail->free_product = gettype($detail->free_product) != 'object' ? json_decode($detail->free_product ?? null) : $detail->free_product;
+                    if (isset($detail->free_product->variations)) {
+                        $detail->free_product->variations = gettype($detail->free_product->variations) != 'array' ? json_decode($detail->free_product->variations ?? null) : $detail->free_product->variations;
+                    }
+                    if (isset($detail->free_product->attributes)) {
+                        $detail->free_product->attributes = gettype($detail->free_product->attributes) != 'array' ? json_decode($detail->free_product->attributes ?? null) : $detail->free_product->attributes;
+                    }
+                    if (isset($detail->free_product->category_ids)) {
+                        $detail->free_product->category_ids = gettype($detail->free_product->category_ids) != 'array' ? json_decode($detail->free_product->category_ids ?? null) : $detail->free_product->category_ids;
+                    }
+                    if (isset($detail->free_product->choice_options)) {
+                        $detail->free_product->choice_options = gettype($detail->free_product->choice_options) != 'array' ? json_decode($detail->free_product->choice_options ?? null) : $detail->free_product->choice_options;
+                    }
+                    if (isset($detail->free_product->add_ons)) {
+                        $detail->free_product->add_ons = gettype($detail->free_product->add_ons) != 'array' ? json_decode($detail->free_product->add_ons ?? null) : $detail->free_product->add_ons;
+                    }
                }
             }
         }
@@ -330,7 +348,7 @@ class Helpers
                 'Content-Type' => 'application/json',
             ];
             try {
-                return Http::withHeaders($headers)->post($url, $data);
+                return Http::withHeaders($headers)->withoutVerifying()->post($url, $data);
             } catch (\Exception $exception) {
                 return false;
             }
@@ -353,7 +371,7 @@ class Helpers
         openssl_sign($unsignedJwt, $signature, $key['private_key'], OPENSSL_ALGO_SHA256);
         $jwt = $unsignedJwt . '.' . base64_encode($signature);
 
-        $response = Http::asForm()->post('https://oauth2.googleapis.com/token', [
+        $response = Http::asForm()->withoutVerifying()->post('https://oauth2.googleapis.com/token', [
             'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
             'assertion' => $jwt,
         ]);
@@ -987,12 +1005,22 @@ class Helpers
             foreach ($details as $detail) {
                 if($detail->free_product != null)
                 {
-                    $detail->free_product = json_decode($detail->free_product ?? null);
-                    $detail->free_product->variations = json_decode($detail->free_product->variations ?? null);
-                    $detail->free_product->attributes = json_decode($detail->free_product->attributes ?? null);
-                    $detail->free_product->category_ids = json_decode($detail->free_product->category_ids ?? null);
-                    $detail->free_product->choice_options = json_decode($detail->free_product->choice_options ?? null);
-                    $detail->free_product->add_ons = json_decode($detail->free_product->add_ons ?? null);
+                    $detail->free_product = gettype($detail->free_product) != 'object' ? json_decode($detail->free_product ?? null) : $detail->free_product;
+                    if (isset($detail->free_product->variations)) {
+                        $detail->free_product->variations = gettype($detail->free_product->variations) != 'array' ? json_decode($detail->free_product->variations ?? null) : $detail->free_product->variations;
+                    }
+                    if (isset($detail->free_product->attributes)) {
+                        $detail->free_product->attributes = gettype($detail->free_product->attributes) != 'array' ? json_decode($detail->free_product->attributes ?? null) : $detail->free_product->attributes;
+                    }
+                    if (isset($detail->free_product->category_ids)) {
+                        $detail->free_product->category_ids = gettype($detail->free_product->category_ids) != 'array' ? json_decode($detail->free_product->category_ids ?? null) : $detail->free_product->category_ids;
+                    }
+                    if (isset($detail->free_product->choice_options)) {
+                        $detail->free_product->choice_options = gettype($detail->free_product->choice_options) != 'array' ? json_decode($detail->free_product->choice_options ?? null) : $detail->free_product->choice_options;
+                    }
+                    if (isset($detail->free_product->add_ons)) {
+                        $detail->free_product->add_ons = gettype($detail->free_product->add_ons) != 'array' ? json_decode($detail->free_product->add_ons ?? null) : $detail->free_product->add_ons;
+                    }
                 }
             }
         }
@@ -1116,8 +1144,13 @@ class Helpers
 
 function translate($key)
 {
-    $local = session()->has('local') ? session('local') : 'en';
+    // For API requests, get the locale from App::getLocale() which is set by localization middleware
+    // For web requests, get it from session
+    $local = App::getLocale() ?: (session()->has('local') ? session('local') : 'en');
+    
+    // Ensure the locale is set
     App::setLocale($local);
+    
     $lang_array = include(base_path('resources/lang/' . $local . '/messages.php'));
     $processed_key = ucfirst(str_replace('_', ' ', Helpers::remove_invalid_charcaters($key)));
     if (!array_key_exists($key, $lang_array)) {

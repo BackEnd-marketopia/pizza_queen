@@ -2677,4 +2677,16 @@
   'Sub Category removed!' => 'Sub Category removed!',
   'Addon removed!' => 'Addon removed!',
   'Addon updated successfully!' => 'Addon updated successfully!',
+  'STEP 2' => 'STEP 2',
+  'For configuring OTP in the Firebase, you must create a Firebase project first.
+                        If you haven’t created any project for your application yet, please create a project first.' => 'For configuring OTP in the Firebase, you must create a Firebase project first.
+                        If you haven’t created any project for your application yet, please create a project first.',
+  'and follow the instructions below' => 'And follow the instructions below',
+  'Go to your Firebase project.' => 'Go to your Firebase project.',
+  'Navigate to the Build menu from the left sidebar and select Authentication.' => 'Navigate to the Build menu from the left sidebar and select Authentication.',
+  'Get started the project and go to the Sign-in method tab.' => 'Get started the project and go to the Sign-in method tab.',
+  'From the Sign-in providers section, select the Phone option.' => 'From the Sign-in providers section, select the Phone option.',
+  'Ensure to enable the method Phone and press save.' => 'Ensure to enable the method Phone and press save.',
+  'This value is the radius from your restaurant location, and customer can order food inside  the circle calculated by this radius.' => 'This value is the radius from your restaurant location, and customer can order food inside  the circle calculated by this radius.',
+  'order_canceled' => 'Order canceled',
 );
