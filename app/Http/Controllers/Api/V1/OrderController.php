@@ -101,7 +101,14 @@ class OrderController extends Controller
      */
     public function placeOrder(Request $request): JsonResponse
     {
-        Log::info('Place order request', $request->all());
+        // Generate unique request ID for tracking
+        $request_id = uniqid('req_' . time() . '_');
+        Log::info('NEW PLACE ORDER REQUEST STARTED', [
+            'request_id' => $request_id,
+            'timestamp' => now(),
+            'request_data' => $request->all()
+        ]);
+        
         $validator = Validator::make($request->all(), [
             'order_amount' => 'required',
             'payment_method' => 'required',
@@ -180,7 +187,34 @@ class OrderController extends Controller
         }
 
         try {
+            // Check for potential duplicate order based on timing and amount
+            $recentOrder = $this->order
+                ->where('user_id', $userId)
+                ->where('is_guest', $userType)  
+                ->where('order_amount', Helpers::set_price($request['order_amount']))
+                ->where('created_at', '>=', now()->subMinutes(1))
+                ->orderBy('created_at', 'desc')
+                ->first();
+                
+            if ($recentOrder) {
+                Log::warning('Potential duplicate order detected', [
+                    'request_id' => $request_id,
+                    'recent_order_id' => $recentOrder->id,
+                    'time_diff_seconds' => now()->diffInSeconds($recentOrder->created_at)
+                ]);
+            }
+            
             $order_id = 100000 + $this->order->all()->count() + 1;
+            
+            // Ensure unique order ID in case of concurrent requests
+            while ($this->order->where('id', $order_id)->exists()) {
+                $order_id++;
+            }
+            
+            Log::info('Generated order ID', [
+                'request_id' => $request_id,
+                'order_id' => $order_id
+            ]);
             $or = [
                 'id' => $order_id,
                 'user_id' => $userId,
@@ -212,6 +246,7 @@ class OrderController extends Controller
             $totalAddonTax = 0;
             $productPrice = 0;
             $free_product = null;
+            $inserted_products_count = 0;
             foreach ($request['cart'] as $c) {
                 $product = $this->product->find($c['product_id']);
                 $branch_product = $this->product_by_branch->where(['product_id' => $c['product_id'], 'branch_id' => $request['branch_id']])->first();
@@ -381,7 +416,7 @@ class OrderController extends Controller
                     'add_on_prices' => json_encode($add_on_prices),
                     'add_on_taxes' => json_encode($add_on_taxes),
                     'add_on_tax_amount' => $total_addon_tax,
-                    'is_free' => false, // Main product is not free
+                    'is_free' => false, // Main product is NEVER free, ignore request value
                     'free_for_product_id' => null,
                     'created_at' => now('Africa/Cairo'),
                     'updated_at' => now('Africa/Cairo')
@@ -389,6 +424,7 @@ class OrderController extends Controller
 
                 // Log order detail structure for comparison with POS
                 Log::info('API Order Detail Structure', [
+                    'request_id' => $request_id,
                     'order_id' => $order_id,
                     'product_id' => $c['product_id'],
                     'is_free' => isset($c['is_free']) && $c['is_free'] ? true : false,
@@ -416,6 +452,7 @@ class OrderController extends Controller
                 // $or_d['product_details']->push($free_products);
                 $totalTaxAmount += $or_d['tax_amount'] * $c['quantity'];
                 $this->order_detail->insert($or_d);
+                $inserted_products_count++;
 
                 // Insert order detail for free product if exists
                 if ($free_product_data && $free_product_data['qty'] > 0) {
@@ -443,6 +480,7 @@ class OrderController extends Controller
                     ];
                     $totalTaxAmount += $free_or_d['tax_amount'] * $free_product_data['qty'];
                     $this->order_detail->insert($free_or_d);
+                    $inserted_products_count++;
 
                     // Update stock for free product
                     if ($branch_product_free && ($branch_product_free->stock_type == 'daily' || $branch_product_free->stock_type == 'fixed')) {
@@ -469,7 +507,10 @@ class OrderController extends Controller
 
             // Log the calculation details for debugging
             Log::info('Order calculation details', [
+                'request_id' => $request_id,
                 'order_id' => $order_id,
+                'cart_items_in_request' => count($request['cart']),
+                'products_inserted' => $inserted_products_count,
                 'requested_order_amount' => $request['order_amount'],
                 'calculated_order_amount' => $finalOrderAmount,
                 'breakdown' => [
@@ -487,17 +528,27 @@ class OrderController extends Controller
             ]);
 
             $o_id = $this->order->insertGetId($or);
-            // Fix: Use the actual database ID instead of manual ID
-            $order_id = $o_id;
+            
+            // CRITICAL FIX: Don't change order_id after inserting order details!
+            // All order details were already inserted with the original $order_id
+            // Only use the database ID for subsequent operations, NOT for order details
+            $actual_db_id = $o_id;
+            
+            Log::info('Order insertion completed', [
+                'request_id' => $request_id,
+                'original_order_id' => $order_id,
+                'actual_db_id' => $actual_db_id,
+                'order_details_inserted_with' => $order_id
+            ]);
 
             if ($request->payment_method == 'wallet_payment') {
                 $amount = $or['order_amount'] + $or['delivery_charge'];
-                CustomerLogic::create_wallet_transaction($userId, $amount, 'order_place', $order_id);
+                CustomerLogic::create_wallet_transaction($userId, $amount, 'order_place', $actual_db_id);
             }
 
             if ($request->payment_method == 'offline_payment') {
                 $offlinePayment = $this->offlinePayment;
-                $offlinePayment->order_id = $order_id;
+                $offlinePayment->order_id = $actual_db_id;
                 $offlinePayment->payment_info = json_encode($request['payment_info']);
                 $offlinePayment->save();
             }
@@ -507,10 +558,10 @@ class OrderController extends Controller
                 $walletAmount = $customer->wallet_balance;
                 $dueAmount = $totalOrderAmount - $walletAmount;
 
-                $walletTransaction = CustomerLogic::create_wallet_transaction($userId, $walletAmount, 'order_place', $order_id);
+                $walletTransaction = CustomerLogic::create_wallet_transaction($userId, $walletAmount, 'order_place', $actual_db_id);
 
                 $partial = new OrderPartialPayment;
-                $partial->order_id = $order_id;
+                $partial->order_id = $actual_db_id;
                 $partial->paid_with = 'wallet_payment';
                 $partial->paid_amount = $walletAmount;
                 $partial->due_amount = $dueAmount;
@@ -518,7 +569,7 @@ class OrderController extends Controller
 
                 if ($request['payment_method'] != 'cash_on_delivery') {
                     $partial = new OrderPartialPayment;
-                    $partial->order_id = $order_id;
+                    $partial->order_id = $actual_db_id;
                     $partial->paid_with = $request['payment_method'];
                     $partial->paid_amount = $dueAmount;
                     $partial->due_amount = 0;
@@ -528,7 +579,7 @@ class OrderController extends Controller
 
             if ($request['selected_delivery_area']) {
                 $orderArea = $this->orderArea;
-                $orderArea->order_id = $order_id;
+                $orderArea->order_id = $actual_db_id;
                 $orderArea->branch_id = $request['branch_id'];
                 $orderArea->area_id = $request['selected_delivery_area'];
                 $orderArea->save();
@@ -559,14 +610,14 @@ class OrderController extends Controller
                 }
             }
             $restaurantName = Helpers::get_business_settings('restaurant_name');
-            $value = Helpers::text_variable_data_format(value: $message, user_name: $customerName, restaurant_name: $restaurantName,  order_id: $order_id);
+            $value = Helpers::text_variable_data_format(value: $message, user_name: $customerName, restaurant_name: $restaurantName,  order_id: $actual_db_id);
 
             try {
                 if ($value && isset($fcmToken)) {
                     $data = [
                         'title' => translate('Order'),
                         'description' => $value,
-                        'order_id' => (bool)auth('api')->user() ? $order_id : null,
+                        'order_id' => (bool)auth('api')->user() ? $actual_db_id : null,
                         'image' => '',
                         'type' => 'order_status',
                     ];
@@ -580,7 +631,7 @@ class OrderController extends Controller
                 $emailServices = Helpers::get_business_settings('mail_config');
                 $orderMailStatus = Helpers::get_business_settings('place_order_mail_status_user');
                 if (isset($emailServices['status']) && $emailServices['status'] == 1 && $orderMailStatus == 1 && (bool)auth('api')->user()) {
-                    Mail::to(auth('api')->user()->email)->send(new \App\Mail\OrderPlaced($order_id));
+                    Mail::to(auth('api')->user()->email)->send(new \App\Mail\OrderPlaced($actual_db_id));
                 }
             } catch (\Exception $e) {
                 return response()->json(['message' => $e->getMessage()]);
@@ -589,8 +640,8 @@ class OrderController extends Controller
             if ($or['order_status'] == 'confirmed') {
                 $data = [
                     'title' => translate('You have a new order - (Order Confirmed).'),
-                    'description' => $order_id,
-                    'order_id' => $order_id,
+                    'description' => $actual_db_id,
+                    'order_id' => $actual_db_id,
                     'image' => '',
                     'order_status' => $or['order_status'],
                 ];
@@ -606,7 +657,7 @@ class OrderController extends Controller
                 $data = [
                     'title' => translate('New Order Notification'),
                     'description' => translate('You have new order, Check Please'),
-                    'order_id' => $order_id,
+                    'order_id' => $actual_db_id,
                     'image' => '',
                     'type' => 'new_order_admin',
                 ];
@@ -618,7 +669,7 @@ class OrderController extends Controller
             }
             return response()->json([
                 'message' => translate('order_success'),
-                'order_id' => $order_id
+                'order_id' => $actual_db_id
             ], 200);
         } catch (\Exception $e) {
             Log::error('Place order error', ['error' => $e->getMessage(), 'request' => $request->all()]);
