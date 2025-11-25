@@ -180,7 +180,6 @@ class OrderController extends Controller
         }
 
         try {
-            // Remove manual ID generation - let database auto-increment handle it
             $or = [
                 'user_id' => $userId,
                 'is_guest' => $userType,
@@ -206,16 +205,15 @@ class OrderController extends Controller
                 'created_at' => now('Africa/Cairo'),
                 'updated_at' => now('Africa/Cairo')
             ];
-
-            // Insert the order first to get the real order ID
-            $order_id = $this->order->insertGetId($or);
-
-            // Now process cart items with the correct order ID
             $totalTaxAmount = 0;
             $totalAddonPrice = 0;
             $totalAddonTax = 0;
             $productPrice = 0;
             $free_product = null;
+            
+            // Generate temporary order ID for order details (will be replaced with real ID after order insertion)
+            $temp_order_id = 999999;
+            
             foreach ($request['cart'] as $c) {
                 $product = $this->product->find($c['product_id']);
                 $branch_product = $this->product_by_branch->where(['product_id' => $c['product_id'], 'branch_id' => $request['branch_id']])->first();
@@ -362,24 +360,20 @@ class OrderController extends Controller
 
                 /*calculation for addon and addon tax end*/
 
-                // Check if main product is free (from mobile app)
-                $isMainProductFree = isset($c['is_free']) && $c['is_free'] == true;
-                $finalProductPrice = $isMainProductFree ? 0 : $price;
-
                 // Calculate product subtotal like POS
-                $productSubtotal = ($finalProductPrice - $discount_on_product) * $c['quantity'];
+                $productSubtotal = ($price - $discount_on_product) * $c['quantity'];
                 $productPrice += $productSubtotal;
                 $totalAddonPrice += $total_addon_price;
                 $totalAddonTax += $total_addon_tax;
 
                 $or_d = [
-                    'order_id' => $order_id,
+                    'order_id' => $temp_order_id, // Will be updated after order creation
                     'product_id' => $c['product_id'],
                     'product_details' => $product,
                     'free_product'  => $free_product_data ? json_encode($free_product_data) : null,
                     'quantity' => $c['quantity'],
-                    'price' => $finalProductPrice, // Use final price (0 if free)
-                    'tax_amount' => Helpers::tax_calculate($product, $finalProductPrice),
+                    'price' => $price,
+                    'tax_amount' => Helpers::tax_calculate($product, $price),
                     'discount_on_product' => $discount_on_product,
                     'discount_type' => 'discount_on_product',
                     'variant' => json_encode($c['variant']),
@@ -389,7 +383,7 @@ class OrderController extends Controller
                     'add_on_prices' => json_encode($add_on_prices),
                     'add_on_taxes' => json_encode($add_on_taxes),
                     'add_on_tax_amount' => $total_addon_tax,
-                    'is_free' => $isMainProductFree, // Set correct free status
+                    'is_free' => false, // Main product is not free
                     'free_for_product_id' => null,
                     'created_at' => now('Africa/Cairo'),
                     'updated_at' => now('Africa/Cairo')
@@ -397,9 +391,9 @@ class OrderController extends Controller
 
                 // Log order detail structure for comparison with POS
                 Log::info('API Order Detail Structure', [
-                    'order_id' => $order_id,
+                    'temp_order_id' => $temp_order_id,
                     'product_id' => $c['product_id'],
-                    'is_free' => $isMainProductFree,
+                    'is_free' => isset($c['is_free']) && $c['is_free'] ? true : false,
                     'variation_structure' => $variations,
                     'add_on_ids' => $c['add_on_ids'],
                     'add_on_qtys' => $c['add_on_qtys'],
@@ -408,8 +402,7 @@ class OrderController extends Controller
                         'original_request_price' => $c['price'] ?? 0,
                         'base_price' => $branch_product ? $branch_product->price : $product->price,
                         'variation_price' => $variation_data['price'] ?? 0,
-                        'calculated_price' => $price,
-                        'final_product_price' => $finalProductPrice,
+                        'final_calculated_price' => $price,
                         'discount' => $discount_on_product,
                         'addon_total_price' => $total_addon_price,
                         'addon_total_tax' => $total_addon_tax
@@ -429,7 +422,7 @@ class OrderController extends Controller
                 // Insert order detail for free product if exists
                 if ($free_product_data && $free_product_data['qty'] > 0) {
                     $free_or_d = [
-                        'order_id' => $order_id,
+                        'order_id' => $temp_order_id, // Will be updated after order creation
                         'product_id' => $c['free_product']['product_id'] ?? $c['free_product']['productId'],
                         'product_details' => $free_product,
                         'free_product' => null, // No free product for the free product itself
@@ -478,7 +471,7 @@ class OrderController extends Controller
 
             // Log the calculation details for debugging
             Log::info('Order calculation details', [
-                'order_id' => $order_id,
+                'temp_order_id' => $temp_order_id,
                 'requested_order_amount' => $request['order_amount'],
                 'calculated_order_amount' => $finalOrderAmount,
                 'breakdown' => [
@@ -495,14 +488,13 @@ class OrderController extends Controller
                 'calculation_formula' => '(product_price + addon_price) + (tax + addon_tax) + delivery - discount'
             ]);
 
-            // Update the order with final calculated amount
-            $this->order->where('id', $order_id)->update([
-                'order_amount' => Helpers::set_price($finalOrderAmount),
-                'total_tax_amount' => Helpers::set_price($totalTaxAmount)
-            ]);
+            $order_id = $this->order->insertGetId($or);
+            
+            // Update all order details with the correct order_id
+            DB::table('order_details')->where('order_id', $temp_order_id)->update(['order_id' => $order_id]);
 
             if ($request->payment_method == 'wallet_payment') {
-                $amount = $finalOrderAmount; // order_amount already includes delivery charge
+                $amount = $or['order_amount'] + $or['delivery_charge'];
                 CustomerLogic::create_wallet_transaction($userId, $amount, 'order_place', $order_id);
             }
 
@@ -514,7 +506,7 @@ class OrderController extends Controller
             }
 
             if ($request['is_partial'] == 1) {
-                $totalOrderAmount = $finalOrderAmount; // order_amount already includes delivery charge
+                $totalOrderAmount = $or['order_amount'] + $or['delivery_charge'];
                 $walletAmount = $customer->wallet_balance;
                 $dueAmount = $totalOrderAmount - $walletAmount;
 
