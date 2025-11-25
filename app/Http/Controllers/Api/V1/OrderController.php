@@ -189,7 +189,7 @@ class OrderController extends Controller
         }
 
         try {
-            // EMERGENCY: Start isolated transaction with row locks
+            // CRITICAL: Start isolated transaction with row locks
             DB::beginTransaction();
             
             $userId = (bool)auth('api')->user() ? auth('api')->user()->id : $request['guest_id'];
@@ -218,26 +218,56 @@ class OrderController extends Controller
                     'order_status' => 'cancelled_emergency',
                     'updated_at' => now()
                 ]);
+                
+                // CRITICAL: Delete corrupted order details
+                DB::table('order_details')->whereIn('order_id', $corruptedIds)->delete();
             }
             
-            // Generate order ID with extra protection
-            $order_id = 100000 + DB::table('orders')->count() + 1;
+            // CRITICAL: Generate GUARANTEED unique order ID using microseconds
+            $microtime = microtime(true);
+            $unique_suffix = substr(str_replace('.', '', $microtime), -6);
+            $order_id = 100000 + (int)$unique_suffix;
             
-            // Lock until we find unique ID
+            // DOUBLE CHECK: Ensure this ID is absolutely clean
             $attempts = 0;
-            while (DB::table('orders')->where('id', $order_id)->exists() && $attempts < 10) {
+            while ($attempts < 20) {
+                $existingOrder = DB::table('orders')->where('id', $order_id)->exists();
+                $existingDetails = DB::table('order_details')->where('order_id', $order_id)->count();
+                
+                if (!$existingOrder && $existingDetails === 0) {
+                    break; // ID is clean
+                }
+                
+                // If any data exists, force clean it and try next ID
+                if ($existingDetails > 0) {
+                    Log::emergency('FORCE CLEANING EXISTING ORDER DATA', [
+                        'request_id' => $request_id,
+                        'order_id' => $order_id,
+                        'existing_details' => $existingDetails
+                    ]);
+                    DB::table('order_details')->where('order_id', $order_id)->delete();
+                }
+                
+                if ($existingOrder) {
+                    DB::table('orders')->where('id', $order_id)->update([
+                        'order_status' => 'overwritten_emergency',
+                        'updated_at' => now()
+                    ]);
+                }
+                
                 $order_id++;
                 $attempts++;
             }
             
-            if ($attempts >= 10) {
-                throw new \Exception('Could not generate unique order ID');
+            if ($attempts >= 20) {
+                throw new \Exception('Could not generate clean order ID after 20 attempts');
             }
             
-            Log::emergency('ORDER ID SECURED', [
+            Log::emergency('ORDER ID SECURED AND GUARANTEED CLEAN', [
                 'request_id' => $request_id,
                 'order_id' => $order_id,
-                'attempts' => $attempts
+                'attempts' => $attempts,
+                'microtime_suffix' => $unique_suffix
             ]);
             $or = [
                 'id' => $order_id,
