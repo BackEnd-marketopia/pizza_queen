@@ -203,6 +203,7 @@ class OrderController extends Controller
                 'delivery_charge' => $deliveryCharge,
                 'preparation_time' => 0,
                 'is_cutlery_required' => $request['is_cutlery_required'] ?? 0,
+                'checked' => 0, // For notification system
                 'created_at' => now('Africa/Cairo'),
                 'updated_at' => now('Africa/Cairo')
             ];

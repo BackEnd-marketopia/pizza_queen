@@ -34,7 +34,10 @@ class SystemController extends Controller
         $newOrder = $this->order->where(['checked' => 0])->count();
         return response()->json([
             'success' => 1,
-            'data' => ['new_order' => $newOrder]
+            'data' => [
+                'new_order' => $newOrder,
+                'type' => 'manual' // Add type for debugging
+            ]
         ]);
     }
 
