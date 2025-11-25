@@ -187,6 +187,9 @@ class OrderController extends Controller
         }
 
         try {
+            // CRITICAL: Start database transaction to prevent data corruption
+            DB::beginTransaction();
+            
             // Check for potential duplicate order based on timing and amount
             $recentOrder = $this->order
                 ->where('user_id', $userId)
@@ -247,8 +250,39 @@ class OrderController extends Controller
             $productPrice = 0;
             $free_product = null;
             $inserted_products_count = 0;
-            foreach ($request['cart'] as $c) {
+            $expected_products_count = count($request['cart']) * 2; // main + free per cart item
+            
+            Log::info('Starting cart processing', [
+                'request_id' => $request_id,
+                'cart_items' => count($request['cart']),
+                'expected_max_products' => $expected_products_count
+            ]);
+            
+            foreach ($request['cart'] as $cart_index => $c) {
+                Log::info('Processing cart item', [
+                    'request_id' => $request_id,
+                    'cart_index' => $cart_index,
+                    'product_id' => $c['product_id'],
+                    'has_free_product' => isset($c['free_product'])
+                ]);
                 $product = $this->product->find($c['product_id']);
+                
+                // CRITICAL: Validate product exists and belongs to correct branch
+                if (!$product) {
+                    Log::error('Product not found', [
+                        'request_id' => $request_id,
+                        'product_id' => $c['product_id']
+                    ]);
+                    throw new \Exception("Product {$c['product_id']} not found");
+                }
+                
+                // CRITICAL: Double-check we're processing the right product
+                Log::info('Product validation', [
+                    'request_id' => $request_id,
+                    'expected_product_id' => $c['product_id'],
+                    'found_product_id' => $product->id,
+                    'product_name' => $product->name
+                ]);
                 $branch_product = $this->product_by_branch->where(['product_id' => $c['product_id'], 'branch_id' => $request['branch_id']])->first();
                 
                 // Convert mobile app variations format to POS format for consistency
@@ -451,8 +485,31 @@ class OrderController extends Controller
                 ]);
                 // $or_d['product_details']->push($free_products);
                 $totalTaxAmount += $or_d['tax_amount'] * $c['quantity'];
+                
+                // CRITICAL: Validate order detail before insertion
+                Log::info('Inserting main product', [
+                    'request_id' => $request_id,
+                    'order_id' => $order_id,
+                    'product_id' => $or_d['product_id'],
+                    'product_name' => $product->name,
+                    'price' => $or_d['price'],
+                    'is_free' => $or_d['is_free'],
+                    'insertion_count' => $inserted_products_count + 1
+                ]);
+                
                 $this->order_detail->insert($or_d);
                 $inserted_products_count++;
+                
+                // CRITICAL: Verify insertion was successful
+                $verifyInsert = $this->order_detail->where(['order_id' => $order_id, 'product_id' => $c['product_id'], 'is_free' => false])->first();
+                if (!$verifyInsert) {
+                    Log::error('Main product insertion failed', [
+                        'request_id' => $request_id,
+                        'order_id' => $order_id,
+                        'product_id' => $c['product_id']
+                    ]);
+                    throw new \Exception('Failed to insert main product');
+                }
 
                 // Insert order detail for free product if exists
                 if ($free_product_data && $free_product_data['qty'] > 0) {
@@ -479,8 +536,31 @@ class OrderController extends Controller
                         'updated_at' => now('Africa/Cairo')
                     ];
                     $totalTaxAmount += $free_or_d['tax_amount'] * $free_product_data['qty'];
+                    
+                    // CRITICAL: Validate free product before insertion
+                    Log::info('Inserting free product', [
+                        'request_id' => $request_id,
+                        'order_id' => $order_id,
+                        'product_id' => $free_or_d['product_id'],
+                        'product_name' => $free_product->name,
+                        'price' => $free_or_d['price'],
+                        'is_free' => $free_or_d['is_free'],
+                        'insertion_count' => $inserted_products_count + 1
+                    ]);
+                    
                     $this->order_detail->insert($free_or_d);
                     $inserted_products_count++;
+                    
+                    // CRITICAL: Verify free product insertion was successful
+                    $verifyFreeInsert = $this->order_detail->where(['order_id' => $order_id, 'product_id' => $free_or_d['product_id'], 'is_free' => true])->first();
+                    if (!$verifyFreeInsert) {
+                        Log::error('Free product insertion failed', [
+                            'request_id' => $request_id,
+                            'order_id' => $order_id,
+                            'product_id' => $free_or_d['product_id']
+                        ]);
+                        throw new \Exception('Failed to insert free product');
+                    }
 
                     // Update stock for free product
                     if ($branch_product_free && ($branch_product_free->stock_type == 'daily' || $branch_product_free->stock_type == 'fixed')) {
@@ -534,12 +614,33 @@ class OrderController extends Controller
             // Only use the database ID for subsequent operations, NOT for order details
             $actual_db_id = $o_id;
             
-            Log::info('Order insertion completed', [
+            // CRITICAL: Final verification of inserted data
+            $insertedDetails = $this->order_detail->where('order_id', $order_id)->get();
+            $actualInsertedCount = $insertedDetails->count();
+            
+            Log::info('Final order verification', [
                 'request_id' => $request_id,
                 'original_order_id' => $order_id,
                 'actual_db_id' => $actual_db_id,
-                'order_details_inserted_with' => $order_id
+                'expected_products' => $inserted_products_count,
+                'actually_inserted' => $actualInsertedCount,
+                'inserted_product_ids' => $insertedDetails->pluck('product_id')->toArray(),
+                'inserted_is_free_flags' => $insertedDetails->pluck('is_free')->toArray()
             ]);
+            
+            // CRITICAL: If product count doesn't match, rollback
+            if ($actualInsertedCount !== $inserted_products_count) {
+                Log::error('Product insertion count mismatch - ROLLING BACK', [
+                    'request_id' => $request_id,
+                    'expected' => $inserted_products_count,
+                    'actual' => $actualInsertedCount
+                ]);
+                DB::rollBack();
+                throw new \Exception('Product insertion verification failed');
+            }
+            
+            // CRITICAL: Commit transaction only after verification
+            DB::commit();
 
             if ($request->payment_method == 'wallet_payment') {
                 $amount = $or['order_amount'] + $or['delivery_charge'];
@@ -667,12 +768,30 @@ class OrderController extends Controller
             } catch (\Exception $e) {
                 return response()->json(['message' => $e->getMessage()]);
             }
+            
+            // FINAL SUCCESS LOG
+            Log::info('ORDER PLACED SUCCESSFULLY', [
+                'request_id' => $request_id,
+                'final_order_id' => $actual_db_id,
+                'total_products_inserted' => $inserted_products_count,
+                'final_amount' => $or['order_amount']
+            ]);
+            
             return response()->json([
                 'message' => translate('order_success'),
                 'order_id' => $actual_db_id
             ], 200);
         } catch (\Exception $e) {
-            Log::error('Place order error', ['error' => $e->getMessage(), 'request' => $request->all()]);
+            // CRITICAL: Rollback transaction on any error
+            DB::rollBack();
+            
+            Log::error('Place order error - Transaction rolled back', [
+                'request_id' => $request_id ?? 'unknown',
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'request' => $request->all()
+            ]);
             return response()->json(['message' => $e->getMessage()]);
         }
     }
