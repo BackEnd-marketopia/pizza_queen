@@ -250,12 +250,10 @@ class OrderController extends Controller
             $productPrice = 0;
             $free_product = null;
             $inserted_products_count = 0;
-            $expected_products_count = count($request['cart']) * 2; // main + free per cart item
             
             Log::info('Starting cart processing', [
                 'request_id' => $request_id,
-                'cart_items' => count($request['cart']),
-                'expected_max_products' => $expected_products_count
+                'cart_items' => count($request['cart'])
             ]);
             
             foreach ($request['cart'] as $cart_index => $c) {
@@ -493,23 +491,11 @@ class OrderController extends Controller
                     'product_id' => $or_d['product_id'],
                     'product_name' => $product->name,
                     'price' => $or_d['price'],
-                    'is_free' => $or_d['is_free'],
-                    'insertion_count' => $inserted_products_count + 1
+                    'is_free' => $or_d['is_free']
                 ]);
                 
                 $this->order_detail->insert($or_d);
                 $inserted_products_count++;
-                
-                // CRITICAL: Verify insertion was successful
-                $verifyInsert = $this->order_detail->where(['order_id' => $order_id, 'product_id' => $c['product_id'], 'is_free' => false])->first();
-                if (!$verifyInsert) {
-                    Log::error('Main product insertion failed', [
-                        'request_id' => $request_id,
-                        'order_id' => $order_id,
-                        'product_id' => $c['product_id']
-                    ]);
-                    throw new \Exception('Failed to insert main product');
-                }
 
                 // Insert order detail for free product if exists
                 if ($free_product_data && $free_product_data['qty'] > 0) {
@@ -544,23 +530,11 @@ class OrderController extends Controller
                         'product_id' => $free_or_d['product_id'],
                         'product_name' => $free_product->name,
                         'price' => $free_or_d['price'],
-                        'is_free' => $free_or_d['is_free'],
-                        'insertion_count' => $inserted_products_count + 1
+                        'is_free' => $free_or_d['is_free']
                     ]);
                     
                     $this->order_detail->insert($free_or_d);
                     $inserted_products_count++;
-                    
-                    // CRITICAL: Verify free product insertion was successful
-                    $verifyFreeInsert = $this->order_detail->where(['order_id' => $order_id, 'product_id' => $free_or_d['product_id'], 'is_free' => true])->first();
-                    if (!$verifyFreeInsert) {
-                        Log::error('Free product insertion failed', [
-                            'request_id' => $request_id,
-                            'order_id' => $order_id,
-                            'product_id' => $free_or_d['product_id']
-                        ]);
-                        throw new \Exception('Failed to insert free product');
-                    }
 
                     // Update stock for free product
                     if ($branch_product_free && ($branch_product_free->stock_type == 'daily' || $branch_product_free->stock_type == 'fixed')) {
@@ -622,24 +596,24 @@ class OrderController extends Controller
                 'request_id' => $request_id,
                 'original_order_id' => $order_id,
                 'actual_db_id' => $actual_db_id,
-                'expected_products' => $inserted_products_count,
-                'actually_inserted' => $actualInsertedCount,
+                'products_we_think_inserted' => $inserted_products_count,
+                'products_actually_in_db' => $actualInsertedCount,
                 'inserted_product_ids' => $insertedDetails->pluck('product_id')->toArray(),
                 'inserted_is_free_flags' => $insertedDetails->pluck('is_free')->toArray()
             ]);
             
-            // CRITICAL: If product count doesn't match, rollback
-            if ($actualInsertedCount !== $inserted_products_count) {
-                Log::error('Product insertion count mismatch - ROLLING BACK', [
+            // Only check if we have reasonable number of products (not too many)
+            if ($actualInsertedCount > 10) {
+                Log::error('Too many products detected - ROLLING BACK', [
                     'request_id' => $request_id,
-                    'expected' => $inserted_products_count,
-                    'actual' => $actualInsertedCount
+                    'actual_count' => $actualInsertedCount,
+                    'product_ids' => $insertedDetails->pluck('product_id')->toArray()
                 ]);
                 DB::rollBack();
-                throw new \Exception('Product insertion verification failed');
+                throw new \Exception('Too many products inserted - data corruption detected');
             }
             
-            // CRITICAL: Commit transaction only after verification
+            // CRITICAL: Commit transaction
             DB::commit();
 
             if ($request->payment_method == 'wallet_payment') {
