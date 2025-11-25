@@ -556,6 +556,8 @@ class POSController extends Controller
                     $branchProduct = $this->product_by_Branch->where(['product_id' => $c['id'], 'branch_id' => auth('branch')->id()])->first();
 
                     $discountData = [];
+                    $finalPrice = $product->price; // Default to main product price
+                    
                     if (isset($branchProduct)) {
                         // Decode variations if they're stored as JSON
                         $decodedVariations = $branchProduct->variations;
@@ -568,17 +570,63 @@ class POSController extends Controller
                             'discount_type' => $branchProduct['discount_type'],
                             'discount' => $branchProduct['discount']
                         ];
+                        
+                        // Use branch-specific price
+                        $finalPrice = $branchProduct->price;
+                        
+                        Log::info('Using Branch-Specific Pricing', [
+                            'product_id' => $c['id'],
+                            'branch_id' => auth('branch')->id(),
+                            'main_price' => $product->price,
+                            'branch_price' => $finalPrice
+                        ]);
+                    } else {
+                        // No branch-specific pricing found, use main product pricing
+                        $variationData = ['variations' => []];
+                        $discountData = [
+                            'discount_type' => $product['discount_type'],
+                            'discount' => $product['discount']
+                        ];
+                        
+                        Log::warning('No Branch-Specific Pricing Found - Using Main Product Price', [
+                            'product_id' => $c['id'],
+                            'branch_id' => auth('branch')->id(),
+                            'main_price' => $product->price
+                        ]);
                     }
+                    
+                    // Add variation price to final price if any variations exist
+                    if (!empty($variationData['price'])) {
+                        $finalPrice += $variationData['price'];
+                    }
+                    
+                    $price = $finalPrice;
 
                     $discount = Helpers::discount_calculate($discountData, $price);
                     $variations = $variationData['variations'];
+                    
+                    // Calculate tax based on branch price
+                    $taxAmount = Helpers::tax_calculate($product, $price);
+
+                    // Log branch pricing data for debugging
+                    Log::info('Branch Order Data Debug', [
+                        'branch_id' => auth('branch')->id(),
+                        'product_id' => $c['id'],
+                        'product_name' => $product->name,
+                        'main_price' => $product->price ?? 0,
+                        'branch_price' => $price,
+                        'branch_discount' => $discount,
+                        'tax_amount' => $taxAmount,
+                        'quantity' => $c['quantity'],
+                        'has_branch_product' => isset($branchProduct) ? 'YES' : 'NO'
+                    ]);
 
                     $orderData = [
                         'product_id' => $c['id'],
                         'product_details' => json_encode($product),
                         'quantity' => $c['quantity'],
                         'price' => $price,
-                        'tax_amount' => Helpers::tax_calculate($product, $price),
+                        'tax_amount' => $taxAmount,
                         'discount_on_product' => $discount,
                         'discount_type' => 'discount_on_product',
                         'variation' => json_encode($variations),
@@ -635,6 +683,25 @@ class POSController extends Controller
                 $orderDetails[$key]['order_id'] = $order->id;
             }
             OrderDetail::insert($orderDetails);
+
+            // Log the completed order with pricing details
+            Log::info('Branch Order Completed Successfully', [
+                'order_id' => $order->id,
+                'branch_id' => $order->branch_id,
+                'total_items' => count($orderDetails),
+                'total_tax_amount' => $totalTaxAmount,
+                'total_addon_price' => $totalAddonPrice,
+                'total_addon_tax' => $totalAddonTax,
+                'total_order_amount' => $order->order_amount,
+                'order_details' => array_map(function($detail) {
+                    return [
+                        'product_id' => $detail['product_id'],
+                        'price' => $detail['price'],
+                        'tax_amount' => $detail['tax_amount'],
+                        'discount' => $detail['discount_on_product']
+                    ];
+                }, $orderDetails)
+            ]);
 
             session()->forget('cart');
             session(['last_order' => $order->id]);

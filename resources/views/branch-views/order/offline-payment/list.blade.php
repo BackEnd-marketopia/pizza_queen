@@ -92,7 +92,10 @@
                                 </td>
 
                                 <td>
-                                    <div>{{ \App\CentralLogics\Helpers::set_symbol($order['order_amount'] + $order['delivery_charge']) }}</div>
+                                    <div>{{ \App\CentralLogics\Helpers::set_symbol($order['order_amount']) }}</div>
+                                    @if($order['delivery_charge'] > 0)
+                                        <small class="text-muted d-block">{{translate('Includes Delivery')}}: {{ \App\CentralLogics\Helpers::set_symbol($order['delivery_charge']) }}</small>
+                                    @endif
                                 </td>
 
                                 <td>

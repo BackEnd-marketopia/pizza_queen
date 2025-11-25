@@ -104,7 +104,12 @@
                                         <td class="table-column-pl-0 text-center">
                                             <a class="text-dark" href="{{route('admin.orders.details',['id'=>$order['id']])}}">{{$order['id']}}</a>
                                         </td>
-                                        <td class="text-center">{{ Helpers::set_symbol($order['order_amount'] + $order['delivery_charge']) }}</td>
+                                        <td class="text-center">
+                                            {{ Helpers::set_symbol($order['order_amount']) }}
+                                            @if($order['delivery_charge'] > 0)
+                                                <br><small class="text-muted">{{translate('Includes Delivery')}}: {{ Helpers::set_symbol($order['delivery_charge']) }}</small>
+                                            @endif
+                                        </td>
                                         <td>
                                             <div class="d-flex justify-content-center gap-2">
                                                     <a class="btn btn-outline-success btn-sm square-btn"

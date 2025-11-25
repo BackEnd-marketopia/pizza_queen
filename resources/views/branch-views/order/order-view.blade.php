@@ -303,9 +303,18 @@
                                     <dt class="col-6">
                                         <div class="d-flex max-w220 ml-auto">
                                             {{translate('tax')}} / {{translate('vat')}}:
+                                            <br><small class="text-muted">({{translate('Branch Calculated')}})</small>
                                         </div>
                                     </dt>
-                                    <dd class="col-6 text-dark text-right">{{ \App\CentralLogics\Helpers::set_symbol($total_tax+$add_ons_tax_cost) }}</dd>
+                                    <dd class="col-6 text-dark text-right">
+                                        <div>{{ \App\CentralLogics\Helpers::set_symbol($total_tax+$add_ons_tax_cost) }}</div>
+                                        @if($total_tax > 0)
+                                            <small class="text-info d-block">{{translate('Product Tax')}}: {{ \App\CentralLogics\Helpers::set_symbol($total_tax) }}</small>
+                                        @endif
+                                        @if($add_ons_tax_cost > 0)
+                                            <small class="text-info d-block">{{translate('AddOn Tax')}}: {{ \App\CentralLogics\Helpers::set_symbol($add_ons_tax_cost) }}</small>
+                                        @endif
+                                    </dd>
 
                                     <dt class="col-6">
                                         <div class="d-flex max-w220 ml-auto">
@@ -356,7 +365,10 @@
                                     <dt class="col-6 border-top pt-2 fz-16 font-weight-bold">
                                         <div class="d-flex max-w220 ml-auto">{{translate('total')}}:</div>
                                     </dt>
-                                    <dd class="col-6 border-top pt-2 fz-16 font-weight-bold text-dark text-right">{{ \App\CentralLogics\Helpers::set_symbol($sub_total - $order['coupon_discount_amount'] - $order['extra_discount'] + $del_c) }}</dd>
+                                    <dd class="col-6 border-top pt-2 fz-16 font-weight-bold text-dark text-right">
+                                        {{ \App\CentralLogics\Helpers::set_symbol($order['order_amount']) }}
+                                        <br><small class="text-success">✓ {{translate('Final Order Amount (includes all charges)')}}</small>
+                                    </dd>
 
                                     <!-- partial payment-->
                                     @if ($order->order_partial_payments->isNotEmpty())

@@ -27,6 +27,7 @@
                                         <label class="badge-soft-info px-2 rounded">
                                             {{$order->branch ? $order->branch->name : 'Branch deleted!'}}
                                         </label>
+                                        <br><small class="text-success mt-1">ℹ️ {{translate('All prices and taxes shown are from this branch')}}</small>
                                     </h5>
 
                                     <div class="mt-2 d-flex flex-column">
@@ -172,9 +173,9 @@
                                @if (isset($order->details[0]->free_product))
                                     <th>{{translate('Free Products')}}</th>
                                @endif
-                                <th>{{translate('Price')}}</th>
-                                <th>{{translate('Discount')}}</th>
-                                <th>{{translate('Tax')}}</th>
+                                <th>{{translate('Branch Price')}}<br><small class="text-muted">({{translate('Per Unit')}})</small></th>
+                                <th>{{translate('Discount')}}<br><small class="text-muted">({{translate('Branch Specific')}})</small></th>
+                                <th>{{translate('Tax / VAT')}}<br><small class="text-muted">({{translate('Calculated from Branch Price')}})</small></th>
                                 <th class="text-right">{{translate('Total_price')}}</th>
                             </tr>
                             </thead>
@@ -288,15 +289,39 @@
                                     @endif
                                     <td>
                                         @php($amount = $detail['price'] * $detail['quantity'])
-                                        {{Helpers::set_symbol($amount)}}
+                                        <div>
+                                            <strong>{{Helpers::set_symbol($detail['price'])}}</strong> x {{$detail['quantity']}}
+                                        </div>
+                                        <small class="text-muted">{{translate('Total')}}: {{Helpers::set_symbol($amount)}}</small>
+                                        <br><small class="text-success">✓ {{translate('Branch Pricing Applied')}}</small>
                                     </td>
                                     <td>
                                         @php($totDiscount = $detail['discount_on_product'] * $detail['quantity'])
-                                        {{Helpers::set_symbol($totDiscount)}}
+                                        <div>
+                                            @if($detail['discount_on_product'] > 0)
+                                                <strong>{{Helpers::set_symbol($detail['discount_on_product'])}}</strong> x {{$detail['quantity']}}
+                                                <br><small class="text-muted">{{translate('Total')}}: {{Helpers::set_symbol($totDiscount)}}</small>
+                                            @else
+                                                <span class="text-muted">{{translate('No Discount')}}</span>
+                                            @endif
+                                        </div>
                                     </td>
                                     <td>
                                         @php($productTax = $detail['tax_amount'] * $detail['quantity'])
-                                        {{Helpers::set_symbol($productTax + $addOnsTaxCost)}}
+                                        <div>
+                                            @if($detail['tax_amount'] > 0)
+                                                <strong>{{Helpers::set_symbol($detail['tax_amount'])}}</strong> x {{$detail['quantity']}}
+                                                <br><small class="text-muted">{{translate('Product Tax')}}: {{Helpers::set_symbol($productTax)}}</small>
+                                                @if($addOnsTaxCost > 0)
+                                                    <br><small class="text-info">{{translate('AddOn Tax')}}: {{Helpers::set_symbol($addOnsTaxCost)}}</small>
+                                                @endif
+                                                <div class="border-top pt-1 mt-1">
+                                                    <small><strong>{{translate('Total Tax')}}: {{Helpers::set_symbol($productTax + $addOnsTaxCost)}}</strong></small>
+                                                </div>
+                                            @else
+                                                <span class="text-muted">{{translate('No Tax')}}</span>
+                                            @endif
+                                        </div>
                                     </td>
                                     <td class="text-right">{{Helpers::set_symbol($amount - $totDiscount + $productTax)}}</td>
                                 </tr>
@@ -328,7 +353,15 @@
                                             <span>:</span>
                                         </div>
                                     </dt>
-                                    <dd class="col-6 text-dark text-right">{{ Helpers::set_symbol($totalTax + $addOnsTaxCost) }}</dd>
+                                    <dd class="col-6 text-dark text-right">
+                                        <div>{{ Helpers::set_symbol($totalTax + $addOnsTaxCost) }}</div>
+                                        @if($totalTax > 0)
+                                            <small class="text-info">{{translate('Product Taxes')}}: {{ Helpers::set_symbol($totalTax) }}</small>
+                                        @endif
+                                        @if($addOnsTaxCost > 0)
+                                            <br><small class="text-info">{{translate('AddOn Taxes')}}: {{ Helpers::set_symbol($addOnsTaxCost) }}</small>
+                                        @endif
+                                    </dd>
 
                                     <dt class="col-6">
 
@@ -399,7 +432,10 @@
                                         <span>:</span>
                                         </div>
                                     </dt>
-                                    <dd class="col-6 border-top pt-2 fz-16 font-weight-bold text-dark text-right">{{ Helpers::set_symbol($subTotal - $order['coupon_discount_amount'] - $order['extra_discount'] + $del_c) }}</dd>
+                                    <dd class="col-6 border-top pt-2 fz-16 font-weight-bold text-dark text-right">
+                                        {{ Helpers::set_symbol($order['order_amount']) }}
+                                        <br><small class="text-success">✓ {{translate('Final Order Amount (includes all charges)')}}</small>
+                                    </dd>
 
                                     @if ($order->order_partial_payments->isNotEmpty())
                                         @foreach($order->order_partial_payments as $partial)
