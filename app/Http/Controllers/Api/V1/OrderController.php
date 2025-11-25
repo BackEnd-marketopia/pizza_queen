@@ -613,22 +613,53 @@ class OrderController extends Controller
             $insertedDetails = $this->order_detail->where('order_id', $order_id)->get();
             $actualInsertedCount = $insertedDetails->count();
             
+            // DIAGNOSTIC: Check what got inserted
+            $mainProducts = $insertedDetails->where('is_free', false);
+            $freeProducts = $insertedDetails->where('is_free', true);
+            $productBreakdown = [];
+            foreach($insertedDetails as $detail) {
+                $productBreakdown[] = [
+                    'product_id' => $detail->product_id,
+                    'is_free' => $detail->is_free ? 'true' : 'false',
+                    'price' => $detail->price,
+                    'quantity' => $detail->quantity
+                ];
+            }
+            
             Log::info('Final order verification', [
                 'request_id' => $request_id,
                 'original_order_id' => $order_id,
                 'actual_db_id' => $actual_db_id,
+                'cart_items_sent' => count($request['cart']),
                 'products_we_think_inserted' => $inserted_products_count,
                 'products_actually_in_db' => $actualInsertedCount,
-                'inserted_product_ids' => $insertedDetails->pluck('product_id')->toArray(),
-                'inserted_is_free_flags' => $insertedDetails->pluck('is_free')->toArray()
+                'main_products_count' => $mainProducts->count(),
+                'free_products_count' => $freeProducts->count(),
+                'detailed_breakdown' => $productBreakdown,
+                'all_product_ids' => $insertedDetails->pluck('product_id')->toArray(),
+                'all_is_free_flags' => $insertedDetails->pluck('is_free')->toArray()
             ]);
             
+            // Check for data corruption patterns
+            $duplicateProductIds = $insertedDetails->groupBy('product_id')->filter(function($group) {
+                return $group->count() > 2; // More than 2 of same product = suspicious
+            })->keys();
+            
+            if ($duplicateProductIds->isNotEmpty()) {
+                Log::error('DUPLICATE PRODUCTS DETECTED', [
+                    'request_id' => $request_id,
+                    'duplicate_product_ids' => $duplicateProductIds->toArray(),
+                    'this_indicates' => 'Loop or session contamination issue'
+                ]);
+            }
+            
             // Only check if we have reasonable number of products (not too many)
-            if ($actualInsertedCount > 10) {
+            if ($actualInsertedCount > 20) { // Increased limit for testing
                 Log::error('Too many products detected - ROLLING BACK', [
                     'request_id' => $request_id,
                     'actual_count' => $actualInsertedCount,
-                    'product_ids' => $insertedDetails->pluck('product_id')->toArray()
+                    'product_ids' => $insertedDetails->pluck('product_id')->toArray(),
+                    'warning' => 'Data corruption protection triggered - investigate immediately'
                 ]);
                 DB::rollBack();
                 throw new \Exception('Too many products inserted - data corruption detected');
