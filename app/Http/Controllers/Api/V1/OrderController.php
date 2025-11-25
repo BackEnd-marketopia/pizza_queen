@@ -180,9 +180,8 @@ class OrderController extends Controller
         }
 
         try {
-            $order_id = 100000 + $this->order->all()->count() + 1;
+            // Remove manual ID generation - let database auto-increment handle it
             $or = [
-                'id' => $order_id,
                 'user_id' => $userId,
                 'is_guest' => $userType,
                 'order_amount' => 0, // Will be calculated after processing cart items
@@ -207,6 +206,11 @@ class OrderController extends Controller
                 'created_at' => now('Africa/Cairo'),
                 'updated_at' => now('Africa/Cairo')
             ];
+
+            // Insert the order first to get the real order ID
+            $order_id = $this->order->insertGetId($or);
+
+            // Now process cart items with the correct order ID
             $totalTaxAmount = 0;
             $totalAddonPrice = 0;
             $totalAddonTax = 0;
@@ -486,29 +490,30 @@ class OrderController extends Controller
                 'calculation_formula' => '(product_price + addon_price) + (tax + addon_tax) + delivery - discount'
             ]);
 
-            $o_id = $this->order->insertGetId($or);
+            // Update the order with final calculated amount
+            $this->order->where('id', $order_id)->update(['order_amount' => $finalOrderAmount]);
 
             if ($request->payment_method == 'wallet_payment') {
-                $amount = $or['order_amount'] + $or['delivery_charge'];
-                CustomerLogic::create_wallet_transaction($or['user_id'], $amount, 'order_place', $or['id']);
+                $amount = $finalOrderAmount + $deliveryCharge;
+                CustomerLogic::create_wallet_transaction($userId, $amount, 'order_place', $order_id);
             }
 
             if ($request->payment_method == 'offline_payment') {
                 $offlinePayment = $this->offlinePayment;
-                $offlinePayment->order_id = $or['id'];
+                $offlinePayment->order_id = $order_id;
                 $offlinePayment->payment_info = json_encode($request['payment_info']);
                 $offlinePayment->save();
             }
 
             if ($request['is_partial'] == 1) {
-                $totalOrderAmount = $or['order_amount'] + $or['delivery_charge'];
+                $totalOrderAmount = $finalOrderAmount + $deliveryCharge;
                 $walletAmount = $customer->wallet_balance;
                 $dueAmount = $totalOrderAmount - $walletAmount;
 
-                $walletTransaction = CustomerLogic::create_wallet_transaction($or['user_id'], $walletAmount, 'order_place', $or['id']);
+                $walletTransaction = CustomerLogic::create_wallet_transaction($userId, $walletAmount, 'order_place', $order_id);
 
                 $partial = new OrderPartialPayment;
-                $partial->order_id = $or['id'];
+                $partial->order_id = $order_id;
                 $partial->paid_with = 'wallet_payment';
                 $partial->paid_amount = $walletAmount;
                 $partial->due_amount = $dueAmount;
@@ -516,7 +521,7 @@ class OrderController extends Controller
 
                 if ($request['payment_method'] != 'cash_on_delivery') {
                     $partial = new OrderPartialPayment;
-                    $partial->order_id = $or['id'];
+                    $partial->order_id = $order_id;
                     $partial->paid_with = $request['payment_method'];
                     $partial->paid_amount = $dueAmount;
                     $partial->due_amount = 0;
@@ -527,7 +532,7 @@ class OrderController extends Controller
             if ($request['selected_delivery_area']) {
                 $orderArea = $this->orderArea;
                 $orderArea->order_id = $order_id;
-                $orderArea->branch_id = $or['branch_id'];
+                $orderArea->branch_id = $request['branch_id'];
                 $orderArea->area_id = $request['selected_delivery_area'];
                 $orderArea->save();
             }
@@ -543,10 +548,10 @@ class OrderController extends Controller
                 $customerName = 'Guest User';
             }
 
-            $message = Helpers::order_status_update_message($or['order_status']);
+            $message = Helpers::order_status_update_message($orderStatus);
 
             if ($local != 'en') {
-                $statusKey = Helpers::order_status_message_key($or['order_status']);
+                $statusKey = Helpers::order_status_message_key($orderStatus);
                 $translatedMessage = $this->business_setting->with('translations')->where(['key' => $statusKey])->first();
                 if (isset($translatedMessage->translations)) {
                     foreach ($translatedMessage->translations as $translation) {
