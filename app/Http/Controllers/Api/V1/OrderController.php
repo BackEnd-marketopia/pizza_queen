@@ -362,8 +362,12 @@ class OrderController extends Controller
 
                 /*calculation for addon and addon tax end*/
 
+                // Check if main product is free (from mobile app)
+                $isMainProductFree = isset($c['is_free']) && $c['is_free'] == true;
+                $finalProductPrice = $isMainProductFree ? 0 : $price;
+
                 // Calculate product subtotal like POS
-                $productSubtotal = ($price - $discount_on_product) * $c['quantity'];
+                $productSubtotal = ($finalProductPrice - $discount_on_product) * $c['quantity'];
                 $productPrice += $productSubtotal;
                 $totalAddonPrice += $total_addon_price;
                 $totalAddonTax += $total_addon_tax;
@@ -374,8 +378,8 @@ class OrderController extends Controller
                     'product_details' => $product,
                     'free_product'  => $free_product_data ? json_encode($free_product_data) : null,
                     'quantity' => $c['quantity'],
-                    'price' => $price,
-                    'tax_amount' => Helpers::tax_calculate($product, $price),
+                    'price' => $finalProductPrice, // Use final price (0 if free)
+                    'tax_amount' => Helpers::tax_calculate($product, $finalProductPrice),
                     'discount_on_product' => $discount_on_product,
                     'discount_type' => 'discount_on_product',
                     'variant' => json_encode($c['variant']),
@@ -385,7 +389,7 @@ class OrderController extends Controller
                     'add_on_prices' => json_encode($add_on_prices),
                     'add_on_taxes' => json_encode($add_on_taxes),
                     'add_on_tax_amount' => $total_addon_tax,
-                    'is_free' => false, // Main product is not free
+                    'is_free' => $isMainProductFree, // Set correct free status
                     'free_for_product_id' => null,
                     'created_at' => now('Africa/Cairo'),
                     'updated_at' => now('Africa/Cairo')
@@ -395,7 +399,7 @@ class OrderController extends Controller
                 Log::info('API Order Detail Structure', [
                     'order_id' => $order_id,
                     'product_id' => $c['product_id'],
-                    'is_free' => isset($c['is_free']) && $c['is_free'] ? true : false,
+                    'is_free' => $isMainProductFree,
                     'variation_structure' => $variations,
                     'add_on_ids' => $c['add_on_ids'],
                     'add_on_qtys' => $c['add_on_qtys'],
@@ -404,7 +408,8 @@ class OrderController extends Controller
                         'original_request_price' => $c['price'] ?? 0,
                         'base_price' => $branch_product ? $branch_product->price : $product->price,
                         'variation_price' => $variation_data['price'] ?? 0,
-                        'final_calculated_price' => $price,
+                        'calculated_price' => $price,
+                        'final_product_price' => $finalProductPrice,
                         'discount' => $discount_on_product,
                         'addon_total_price' => $total_addon_price,
                         'addon_total_tax' => $total_addon_tax
@@ -464,9 +469,9 @@ class OrderController extends Controller
                 }
             }
 
-            // Calculate final order amount like POS system
+            // Calculate final order amount like POS system (INCLUDING delivery charge)
             $totalPrice = $productPrice + $totalAddonPrice;
-            $finalOrderAmount = $totalPrice + $totalTaxAmount + $deliveryCharge + $totalAddonTax - $or['coupon_discount_amount'];
+            $finalOrderAmount = $totalPrice + $totalTaxAmount + $totalAddonTax + $deliveryCharge - $or['coupon_discount_amount'];
             
             $or['total_tax_amount'] = $totalTaxAmount;
             $or['order_amount'] = Helpers::set_price($finalOrderAmount);
@@ -491,10 +496,13 @@ class OrderController extends Controller
             ]);
 
             // Update the order with final calculated amount
-            $this->order->where('id', $order_id)->update(['order_amount' => $finalOrderAmount]);
+            $this->order->where('id', $order_id)->update([
+                'order_amount' => Helpers::set_price($finalOrderAmount),
+                'total_tax_amount' => Helpers::set_price($totalTaxAmount)
+            ]);
 
             if ($request->payment_method == 'wallet_payment') {
-                $amount = $finalOrderAmount + $deliveryCharge;
+                $amount = $finalOrderAmount; // order_amount already includes delivery charge
                 CustomerLogic::create_wallet_transaction($userId, $amount, 'order_place', $order_id);
             }
 
@@ -506,7 +514,7 @@ class OrderController extends Controller
             }
 
             if ($request['is_partial'] == 1) {
-                $totalOrderAmount = $finalOrderAmount + $deliveryCharge;
+                $totalOrderAmount = $finalOrderAmount; // order_amount already includes delivery charge
                 $walletAmount = $customer->wallet_balance;
                 $dueAmount = $totalOrderAmount - $walletAmount;
 
