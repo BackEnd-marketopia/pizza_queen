@@ -364,6 +364,16 @@ class OrderController extends Controller
                             $free_variation_data = Helpers::get_varient($branch_product_free_variations, $convertedFreeVariations);
                             $free_product_price += $free_variation_data['price'];
                             $free_variations = $free_variation_data['variations'];
+                            
+                            // CRITICAL: Add free product variation price to total addon price
+                            $totalAddonPrice += $free_variation_data['price'];
+                            
+                            Log::info('Free product variation calculated', [
+                                'request_id' => $request_id,
+                                'free_product_id' => $free_product->id,
+                                'variation_price' => $free_variation_data['price'],
+                                'variation_details' => $free_variations
+                            ]);
                         }
                     }
 
@@ -383,10 +393,31 @@ class OrderController extends Controller
                             },
                             0
                         );
+                        
+                        // CRITICAL: Calculate free product addon total price correctly
+                        $free_addon_total = array_reduce(
+                            array_map(function ($a, $b) {
+                                return $a * $b;
+                            }, $c['free_product']['add_on_qtys'], $free_add_on_prices),
+                            function ($carry, $item) {
+                                return $carry + $item;
+                            },
+                            0
+                        );
+                        
                         // Add free product addons to total addon price AND to free product price
-                        $totalAddonPrice += array_sum($free_add_on_prices);
+                        $totalAddonPrice += $free_addon_total;
                         $totalAddonTax += $free_total_addon_tax;
-                        $free_product_price += array_sum($free_add_on_prices);
+                        $free_product_price += $free_addon_total;
+                        
+                        Log::info('Free product addons calculated', [
+                            'request_id' => $request_id,
+                            'free_product_id' => $free_product->id,
+                            'addon_total' => $free_addon_total,
+                            'addon_tax' => $free_total_addon_tax,
+                            'addon_prices' => $free_add_on_prices,
+                            'addon_qtys' => $c['free_product']['add_on_qtys']
+                        ]);
                         
                         // Free product does NOT contribute to productPrice (Items Price)
                         // Only addons are counted in Addon Cost
@@ -626,15 +657,15 @@ class OrderController extends Controller
             $or['order_amount'] = Helpers::set_price($finalOrderAmount);
 
             // Log the calculation details for debugging
-            Log::info('Order calculation details', [
+            Log::info('Order calculation details COMPLETE', [
                 'request_id' => $request_id,
                 'order_id' => $order_id,
                 'cart_items_in_request' => count($request['cart']),
                 'products_inserted' => $inserted_products_count,
                 'requested_order_amount' => $request['order_amount'],
                 'calculated_order_amount' => $finalOrderAmount,
-                'breakdown' => [
-                    'product_price' => $productPrice,
+                'detailed_breakdown' => [
+                    'main_product_price' => $productPrice,
                     'total_addon_price' => $totalAddonPrice,
                     'total_tax_amount' => $totalTaxAmount,
                     'total_addon_tax' => $totalAddonTax,
@@ -644,7 +675,13 @@ class OrderController extends Controller
                     'final_with_delivery' => $finalOrderAmount
                 ],
                 'final_order_amount_in_db' => $or['order_amount'],
-                'calculation_formula' => '(product_price + addon_price) + (tax + addon_tax) + delivery - discount'
+                'calculation_formula' => '(main_product_price + total_addon_price) + (tax + addon_tax) + delivery - discount',
+                'expected_total_should_be' => $totalPrice + $deliveryCharge,
+                'verification' => [
+                    'items_price' => $productPrice,
+                    'addon_cost' => $totalAddonPrice,
+                    'should_match_screen' => "Items: {$productPrice}, Addons: {$totalAddonPrice}, Subtotal: {$totalPrice}, Delivery: {$deliveryCharge}, Final: {$finalOrderAmount}"
+                ]
             ]);
 
             $o_id = $this->order->insertGetId($or);
