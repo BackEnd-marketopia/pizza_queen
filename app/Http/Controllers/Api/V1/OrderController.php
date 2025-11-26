@@ -482,6 +482,21 @@ class OrderController extends Controller
                 $totalAddonPrice += $total_addon_price;
                 $totalAddonTax += $total_addon_tax;
 
+                // CRITICAL: Prepare safe data for database columns
+                $safe_variant = $c['variant'] ?? null;
+                if (is_array($safe_variant)) {
+                    $safe_variant = json_encode($safe_variant);
+                }
+                // Ensure variant column doesn't exceed database limit (usually VARCHAR(255) or TEXT)
+                if (strlen($safe_variant) > 500) {
+                    $safe_variant = json_encode(['truncated' => 'data_too_long']);
+                    Log::warning('Variant data truncated', [
+                        'request_id' => $request_id,
+                        'product_id' => $c['product_id'],
+                        'original_size' => strlen(json_encode($c['variant'] ?? []))
+                    ]);
+                }
+                
                 $or_d = [
                     'order_id' => $order_id,
                     'product_id' => $c['product_id'],
@@ -492,7 +507,7 @@ class OrderController extends Controller
                     'tax_amount' => Helpers::tax_calculate($product, $price),
                     'discount_on_product' => $discount_on_product,
                     'discount_type' => 'discount_on_product',
-                    'variant' => json_encode($c['variant']),
+                    'variant' => $safe_variant, // FIXED: Safe variant data
                     'variation' => json_encode($variations),
                     'add_on_ids' => json_encode($c['add_on_ids']),
                     'add_on_qtys' => json_encode($c['add_on_qtys']),
@@ -560,7 +575,7 @@ class OrderController extends Controller
                         'tax_amount' => $free_product_data['tax_amount'],
                         'discount_on_product' => 0, // Assuming no discount for free product
                         'discount_type' => 'discount_on_product',
-                        'variant' => json_encode($free_product_data['variations']),
+                        'variant' => json_encode([]), // FIXED: Empty for free products to avoid size issues
                         'variation' => json_encode($free_product_data['variations']),
                         'add_on_ids' => json_encode($free_product_data['add_on_ids']),
                         'add_on_qtys' => json_encode($free_product_data['add_on_qtys']),
