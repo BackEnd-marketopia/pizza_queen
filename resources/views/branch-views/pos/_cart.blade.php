@@ -37,7 +37,31 @@
                         $addonTotalTax += $cartItem['addon_total_tax'];
                         $product = \App\Model\Product::find($cartItem['id']);
                         $totalTax +=Helpers::tax_calculate($product, $cartItem['price'])*$cartItem['quantity'];
-
+                        
+                        // Calculate separate prices for display from existing data
+                        $cartPrice = $cartItem['price'];
+                        $variationPrice = isset($cartItem['variation_price']) ? $cartItem['variation_price'] : 0;
+                        
+                        // Debug: let's check what variations data looks like
+                        $debugVariations = isset($cartItem['variations']) ? $cartItem['variations'] : [];
+                        
+                        // If variation_price not set, try to calculate from variations data
+                        if ($variationPrice == 0 && !empty($debugVariations)) {
+                            foreach ($debugVariations as $variation) {
+                                if (isset($variation['values'])) {
+                                    if (is_array($variation['values']) && isset($variation['values']['price'])) {
+                                        if (is_array($variation['values']['price'])) {
+                                            $variationPrice += array_sum($variation['values']['price']);
+                                        } else {
+                                            $variationPrice += (float)$variation['values']['price'];
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        $basePrice = $cartPrice - $variationPrice;
+                        if ($basePrice < 0) $basePrice = 0;
                         ?>
                     <tr>
                         <td>
@@ -51,7 +75,94 @@
                                         <span class="badge badge-success ml-1" style="font-size: 10px;">{{translate('Free')}}</span>
                                     @endif
                                 </h5>
-                                <small>{{Str::limit($cartItem['variant'], 20)}}</small>
+                                
+                                {{-- Show base product price --}}
+                                @if($basePrice > 0)
+                                <small class="text-muted">
+                                    {{translate('Base Price')}}: {{Helpers::set_symbol($basePrice)}}
+                                </small>
+                                @endif
+                                
+                                {{-- Show variation details with names and prices from product --}}
+                                @if(isset($cartItem['variations']) && !empty($cartItem['variations']))
+                                    @php($product = \App\Model\Product::find($cartItem['id']))
+                                    @php($branchProduct = \App\Model\ProductByBranch::where(['product_id' => $cartItem['id'], 'branch_id' => auth('branch')->id()])->first())
+                                    @php($productVariations = $branchProduct ? $branchProduct->variations : json_decode($product->variations, true))
+                                    
+                                    @foreach($cartItem['variations'] as $cartVariation)
+                                        @if(isset($cartVariation['name']) && isset($cartVariation['values']))
+                                            <small class="text-muted d-block">
+                                                <strong>{{$cartVariation['name']}}:</strong>
+                                                
+                                                {{-- Find matching variation in product data --}}
+                                                @php($matchingVariation = null)
+                                                @foreach($productVariations as $prodVar)
+                                                    @if($prodVar['name'] == $cartVariation['name'])
+                                                        @php($matchingVariation = $prodVar)
+                                                        @break
+                                                    @endif
+                                                @endforeach
+                                                
+                                                @if(is_array($cartVariation['values']) && isset($cartVariation['values']['label']))
+                                                    @if(is_array($cartVariation['values']['label']))
+                                                        @foreach($cartVariation['values']['label'] as $key => $selectedLabel)
+                                                            {{$selectedLabel}}
+                                                            {{-- Find price for this specific selection --}}
+                                                            @if($matchingVariation)
+                                                                @foreach($matchingVariation['values'] as $valueKey => $valueData)
+                                                                    @if($valueData['label'] == $selectedLabel)
+                                                                        @php($varPrice = (float)$valueData['optionPrice'])
+                                                                        @if($varPrice > 0)
+                                                                            <span class="text-success">(+{{Helpers::set_symbol($varPrice)}})</span>
+                                                                        @else
+                                                                            <span class="text-muted">({{Helpers::set_symbol($varPrice)}})</span>
+                                                                        @endif
+                                                                        @break
+                                                                    @endif
+                                                                @endforeach
+                                                            @endif
+                                                            @if(!$loop->last), @endif
+                                                        @endforeach
+                                                    @else
+                                                        {{$cartVariation['values']['label']}}
+                                                        {{-- Find price for single selection --}}
+                                                        @if($matchingVariation)
+                                                            @foreach($matchingVariation['values'] as $valueKey => $valueData)
+                                                                @if($valueData['label'] == $cartVariation['values']['label'])
+                                                                    @php($varPrice = (float)$valueData['optionPrice'])
+                                                                    @if($varPrice > 0)
+                                                                        <span class="text-success">(+{{Helpers::set_symbol($varPrice)}})</span>
+                                                                    @else
+                                                                        <span class="text-muted">({{Helpers::set_symbol($varPrice)}})</span>
+                                                                    @endif
+                                                                    @break
+                                                                @endif
+                                                            @endforeach
+                                                        @endif
+                                                    @endif
+                                                @elseif(is_string($cartVariation['values']))
+                                                    {{$cartVariation['values']}}
+                                                    {{-- Find price for string value --}}
+                                                    @if($matchingVariation)
+                                                        @foreach($matchingVariation['values'] as $valueKey => $valueData)
+                                                            @if($valueData['label'] == $cartVariation['values'])
+                                                                @php($varPrice = (float)$valueData['optionPrice'])
+                                                                @if($varPrice > 0)
+                                                                    <span class="text-success">(+{{Helpers::set_symbol($varPrice)}})</span>
+                                                                @else
+                                                                    <span class="text-muted">({{Helpers::set_symbol($varPrice)}})</span>
+                                                                @endif
+                                                                @break
+                                                            @endif
+                                                        @endforeach
+                                                    @endif
+                                                @endif
+                                            </small>
+                                        @endif
+                                    @endforeach
+                                @elseif(isset($cartItem['variant']) && !empty($cartItem['variant']))
+                                    <small class="text-muted">{{Str::limit($cartItem['variant'], 20)}}</small>
+                                @endif
                                     <small class="d-block">
                                         @php($addOnQtys=$cartItem['add_on_qtys'])
                                         @foreach($cartItem['add_ons'] as $key2 =>$id)
@@ -97,6 +208,33 @@
 </div>
 
 <?php
+// Calculate separate totals from existing cart data
+$baseTotal = 0;
+$variationTotal = 0;
+if(session()->has('cart') && count(session()->get('cart')) > 0) {
+    foreach(session()->get('cart') as $key => $cartItem) {
+        if(is_array($cartItem)) {
+            $cartPrice = $cartItem['price'];
+            $variationPrice = isset($cartItem['variation_price']) ? $cartItem['variation_price'] : 0;
+            
+            // If variation_price not set, try to calculate from variations data
+            if ($variationPrice == 0 && isset($cartItem['variations']) && !empty($cartItem['variations'])) {
+                foreach ($cartItem['variations'] as $variation) {
+                    if (isset($variation['values']) && isset($variation['values']['price'])) {
+                        $variationPrice += (float)$variation['values']['price'];
+                    }
+                }
+            }
+            
+            $basePrice = $cartPrice - $variationPrice;
+            if ($basePrice < 0) $basePrice = 0;
+            
+            $baseTotal += ($basePrice * $cartItem['quantity']);
+            $variationTotal += ($variationPrice * $cartItem['quantity']);
+        }
+    }
+}
+
 $total = $subtotal+$addonPrice;
 $discountAmount = ($discountType=='percent' && $discount>0)?(($total * $discount)/100):$discount;
 $discountAmount += $discountOnProduct;
@@ -127,6 +265,18 @@ if (session()->get('order_type') == 'home_delivery'){
 ?>
 <div class="pos-data-table p-3">
     <dl class="row">
+        {{-- Show base products total --}}
+        @if($baseTotal > 0)
+        <dt class="col-6">{{translate('Items Price')}} : </dt>
+        <dd class="col-6 text-right">{{Helpers::set_symbol($baseTotal) }}</dd>
+        @endif
+        
+        {{-- Show variations total --}}
+        @if($variationTotal > 0)
+        <dt class="col-6">{{translate('Variations')}} : </dt>
+        <dd class="col-6 text-right">{{Helpers::set_symbol($variationTotal) }}</dd>
+        @endif
+
         <dt  class="col-6">{{translate('addon')}} : </dt>
         <dd class="col-6 text-right">{{Helpers::set_symbol($addonPrice) }}</dd>
 

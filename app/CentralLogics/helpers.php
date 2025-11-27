@@ -1000,6 +1000,56 @@ class Helpers
 
                 $product_availability = Product::where('id', $detail['product_id'])->first();
                 $detail['is_product_available'] = isset($product_availability) ? 1 : 0;
+
+                // Calculate separate base price and variation price for API response
+                $totalPrice = $detail['price'];
+                $variationPrice = 0;
+                $variationDetails = [];
+                
+                // Calculate variation price from variation data and collect details
+                if (is_array($detail['variation']) && !empty($detail['variation'])) {
+                    foreach ($detail['variation'] as $variation) {
+                        if (isset($variation['price'])) {
+                            $variationPrice += (float)$variation['price'];
+                        }
+                        
+                        // Collect variation details with names and prices
+                        if (isset($variation['name'])) {
+                            $variationDetail = [
+                                'name' => $variation['name'],
+                                'values' => []
+                            ];
+                            
+                            if (isset($variation['values'])) {
+                                if (is_array($variation['values']['label'])) {
+                                    foreach ($variation['values']['label'] as $key => $label) {
+                                        $price = isset($variation['values']['price'][$key]) ? (float)$variation['values']['price'][$key] : 0;
+                                        $variationDetail['values'][] = [
+                                            'label' => $label,
+                                            'price' => $price
+                                        ];
+                                    }
+                                } else {
+                                    $price = isset($variation['values']['price']) ? (float)$variation['values']['price'] : 0;
+                                    $variationDetail['values'][] = [
+                                        'label' => $variation['values']['label'],
+                                        'price' => $price
+                                    ];
+                                }
+                            }
+                            
+                            $variationDetails[] = $variationDetail;
+                        }
+                    }
+                }
+                
+                $basePrice = $totalPrice - $variationPrice;
+                
+                // Add separated price fields to detail for display only
+                $detail['base_price'] = $basePrice > 0 ? $basePrice : 0;
+                $detail['variation_price'] = $variationPrice;
+                $detail['variation_details'] = $variationDetails;
+                $detail['total_price'] = $totalPrice;
             }
 
             foreach ($details as $detail) {

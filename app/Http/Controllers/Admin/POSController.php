@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Model\AddOn;
 use App\Model\Admin;
 use App\Model\Branch;
+use App\Model\BusinessSetting;
 use App\Model\Category;
 use App\Model\CustomerAddress;
 use App\Model\DeliveryMan;
@@ -52,7 +53,8 @@ class POSController extends Controller
         private Order           $order,
         private OrderDetail     $order_detail,
         private Notification    $notification,
-        private DeliveryMan     $delivery_man
+        private DeliveryMan     $delivery_man,
+        private BusinessSetting $business_setting
     ) {}
 
     /**
@@ -394,6 +396,7 @@ class POSController extends Controller
         }
 
         $price = $branch_product_price + $variation_price;
+        $data['base_price'] = $branch_product_price;
         $data['variation_price'] = $variation_price;
 
         $discount_on_product = Helpers::discount_calculate($discount_data, $price);
@@ -405,7 +408,9 @@ class POSController extends Controller
 
         // Handle free products
         if (isset($request->is_free) && $request->is_free === 'true') {
-            $data['price'] = 0;
+            // For free products, keep variation price but set base price to 0
+            $data['price'] = $variation_price; // Add variation price even for free products
+            $data['base_price'] = 0; // Base price is 0 for free products
             $data['is_free'] = true;
             $data['free_for_product'] = $request->free_for_product ?? null;
         } else {

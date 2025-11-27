@@ -364,6 +364,7 @@ class POSController extends Controller
             ];
         }
         $price = $branchProductPrice + $variationPrice;
+        $data['base_price'] = $branchProductPrice;
         $data['variation_price'] = $variationPrice;
 
         $discountOnProduct = Helpers::discount_calculate($discountData, $price);
@@ -375,7 +376,9 @@ class POSController extends Controller
         
         // Handle free products
         if (isset($request->is_free) && $request->is_free === 'true') {
-            $data['price'] = 0;
+            // For free products, keep variation price but set base price to 0
+            $data['price'] = $variationPrice; // Add variation price even for free products
+            $data['base_price'] = 0; // Base price is 0 for free products
             $data['is_free'] = true;
             $data['free_for_product'] = $request->free_for_product ?? null;
         } else {
@@ -556,8 +559,6 @@ class POSController extends Controller
                     $branchProduct = $this->product_by_Branch->where(['product_id' => $c['id'], 'branch_id' => auth('branch')->id()])->first();
 
                     $discountData = [];
-                    $finalPrice = $product->price; // Default to main product price
-                    
                     if (isset($branchProduct)) {
                         // Decode variations if they're stored as JSON
                         $decodedVariations = $branchProduct->variations;
@@ -566,60 +567,24 @@ class POSController extends Controller
                         }
                         
                         $variationData = Helpers::get_varient($decodedVariations, $c['variations']);
+
                         $discountData = [
                             'discount_type' => $branchProduct['discount_type'],
                             'discount' => $branchProduct['discount']
                         ];
-                        
-                        // Use branch-specific price
-                        $finalPrice = $branchProduct->price;
-                        
-                        Log::info('Using Branch-Specific Pricing', [
-                            'product_id' => $c['id'],
-                            'branch_id' => auth('branch')->id(),
-                            'main_price' => $product->price,
-                            'branch_price' => $finalPrice
-                        ]);
                     } else {
-                        // No branch-specific pricing found, use main product pricing
                         $variationData = ['variations' => []];
                         $discountData = [
-                            'discount_type' => $product['discount_type'],
-                            'discount' => $product['discount']
+                            'discount_type' => $product['discount_type'] ?? '',
+                            'discount' => $product['discount'] ?? 0
                         ];
-                        
-                        Log::warning('No Branch-Specific Pricing Found - Using Main Product Price', [
-                            'product_id' => $c['id'],
-                            'branch_id' => auth('branch')->id(),
-                            'main_price' => $product->price
-                        ]);
                     }
-                    
-                    // Add variation price to final price if any variations exist
-                    if (!empty($variationData['price'])) {
-                        $finalPrice += $variationData['price'];
-                    }
-                    
-                    $price = $finalPrice;
 
                     $discount = Helpers::discount_calculate($discountData, $price);
                     $variations = $variationData['variations'];
-                    
-                    // Calculate tax based on branch price
-                    $taxAmount = Helpers::tax_calculate($product, $price);
 
-                    // Log branch pricing data for debugging
-                    Log::info('Branch Order Data Debug', [
-                        'branch_id' => auth('branch')->id(),
-                        'product_id' => $c['id'],
-                        'product_name' => $product->name,
-                        'main_price' => $product->price ?? 0,
-                        'branch_price' => $price,
-                        'branch_discount' => $discount,
-                        'tax_amount' => $taxAmount,
-                        'quantity' => $c['quantity'],
-                        'has_branch_product' => isset($branchProduct) ? 'YES' : 'NO'
-                    ]);
+                    // Calculate tax based on price
+                    $taxAmount = Helpers::tax_calculate($product, $price);
 
                     $orderData = [
                         'product_id' => $c['id'],
@@ -641,12 +606,9 @@ class POSController extends Controller
                         'updated_at' => now('Africa/Cairo')
                     ];
 
-
                     $totalTaxAmount += $orderData['tax_amount'] * $c['quantity'];
                     $totalAddonPrice += $addonData['total_add_on_price'];
-
                     $totalAddonTax += $c['addon_total_tax'];
-
                     $productPrice += $productSubtotal - $discountOnProduct;
                     $totalProductMainPrice += $productSubtotal;
                     $orderDetails[] = $orderData;

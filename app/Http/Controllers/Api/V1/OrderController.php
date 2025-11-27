@@ -447,15 +447,22 @@ class OrderController extends Controller
 
                 $discount_data = [];
 
+                $discount_data = [];
+                $base_price = 0;
+                $variation_price = 0;
+
                 if ($branch_product) {
                     $branch_product_variations = $branch_product->variations;
                     $variations = [];
+                    $base_price = $branch_product['price'];
+                    
                     if (count($branch_product_variations)) {
                         $variation_data = Helpers::get_varient($branch_product_variations, $convertedVariations);
-                        $price = $branch_product['price'] + $variation_data['price'];
+                        $variation_price = $variation_data['price'];
+                        $price = $base_price + $variation_price;
                         $variations = $variation_data['variations'];
                     } else {
-                        $price = $branch_product['price'];
+                        $price = $base_price;
                     }
                     $discount_data = [
                         'discount_type' => $branch_product['discount_type'],
@@ -464,12 +471,15 @@ class OrderController extends Controller
                 } else {
                     $product_variations = json_decode($product->variations, true);
                     $variations = [];
+                    $base_price = $product['price'];
+                    
                     if (count($product_variations)) {
                         $variation_data = Helpers::get_varient($product_variations, $convertedVariations);
-                        $price = $product['price'] + $variation_data['price'];
+                        $variation_price = $variation_data['price'];
+                        $price = $base_price + $variation_price;
                         $variations = $variation_data['variations'];
                     } else {
-                        $price = $product['price'];
+                        $price = $base_price;
                     }
                     $discount_data = [
                         'discount_type' => $product['discount_type'],
@@ -563,8 +573,8 @@ class OrderController extends Controller
                     'add_on_prices' => $add_on_prices,
                     'price_calculation' => [
                         'original_request_price' => $c['price'] ?? 0,
-                        'base_price' => $branch_product ? $branch_product->price : $product->price,
-                        'variation_price' => $variation_data['price'] ?? 0,
+                        'base_price' => $base_price,
+                        'variation_price' => $variation_price,
                         'final_calculated_price' => $price,
                         'discount' => $discount_on_product,
                         'addon_total_price' => $total_addon_price,
