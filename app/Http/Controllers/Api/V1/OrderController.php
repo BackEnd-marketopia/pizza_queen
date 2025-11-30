@@ -393,7 +393,8 @@ class OrderController extends Controller
                         }
                     }
                     // Calculate variations and addons for free product like POS
-                    $free_product_price = 0; // Base price is 0 for free products
+                    $free_product_price = 0; // Start with 0 for free products
+                    $free_product_display_price = 0; // This will show in order (variations only)
                     $free_variations = [];
                     $free_add_on_prices = [];
                     $free_add_on_taxes = [];
@@ -405,7 +406,9 @@ class OrderController extends Controller
                         if (count($branch_product_free_variations) && isset($c['free_product']['variations'])) {
                             $convertedFreeVariations = $this->convertMobileVariationsToPOSFormat($c['free_product']['variations']);
                             $free_variation_data = Helpers::get_varient($branch_product_free_variations, $convertedFreeVariations);
-                            $free_product_price += $free_variation_data['price'];
+                            
+                            // Free product displays variation cost but doesn't add to product price for Items Price calculation
+                            $free_product_display_price = $free_variation_data['price']; // For display in order
                             $free_variations = $free_variation_data['variations'];
                             
                             // CRITICAL: Add free product variation price to total addon price (like POS)
@@ -416,36 +419,38 @@ class OrderController extends Controller
                                 'request_id' => $request_id,
                                 'free_product_id' => $free_product->id,
                                 'variation_price' => $free_variation_data['price'],
+                                'display_price' => $free_product_display_price,
                                 'variation_qty' => $c['free_product']['qty'] ?? 1,
                                 'total_variation_cost' => $free_variation_data['price'] * ($c['free_product']['qty'] ?? 1),
                                 'variation_details' => $free_variations,
-                                'note' => 'POS-style: variation price × qty added to totalAddonPrice for Addon Cost section'
+                                'note' => 'Free product shows variation cost in order display, adds to Addon Cost'
                             ]);
                         }
-                    } else {
-                        // Handle case where no branch-specific product but general product variations exist
-                        $general_product_variations = json_decode($free_product->variations ?? '[]', true) ?: [];
-                        if (count($general_product_variations) && isset($c['free_product']['variations'])) {
-                            $convertedFreeVariations = $this->convertMobileVariationsToPOSFormat($c['free_product']['variations']);
-                            $free_variation_data = Helpers::get_varient($general_product_variations, $convertedFreeVariations);
-                            $free_product_price += $free_variation_data['price'];
-                            $free_variations = $free_variation_data['variations'];
-                            
-                            // CRITICAL: Add free product variation price to total addon price (like POS)
-                            $totalAddonPrice += $free_variation_data['price'] * ($c['free_product']['qty'] ?? 1);
-                            
-                            Log::info('Free product variation calculated (general product)', [
-                                'request_id' => $request_id,
-                                'free_product_id' => $free_product->id,
-                                'variation_price' => $free_variation_data['price'],
-                                'variation_qty' => $c['free_product']['qty'] ?? 1,
-                                'total_variation_cost' => $free_variation_data['price'] * ($c['free_product']['qty'] ?? 1),
-                                'note' => 'Using general product variations since no branch-specific variations found'
-                            ]);
-                        }
-                    }
-
-                    // Add addon prices to free product price (like POS does)
+                        } else {
+                            // Handle case where no branch-specific product but general product variations exist
+                            $general_product_variations = json_decode($free_product->variations ?? '[]', true) ?: [];
+                            if (count($general_product_variations) && isset($c['free_product']['variations'])) {
+                                $convertedFreeVariations = $this->convertMobileVariationsToPOSFormat($c['free_product']['variations']);
+                                $free_variation_data = Helpers::get_varient($general_product_variations, $convertedFreeVariations);
+                                
+                                // Free product displays variation cost but doesn't add to product price for Items Price calculation
+                                $free_product_display_price = $free_variation_data['price']; // For display in order
+                                $free_variations = $free_variation_data['variations'];
+                                
+                                // CRITICAL: Add free product variation price to total addon price (like POS)
+                                $totalAddonPrice += $free_variation_data['price'] * ($c['free_product']['qty'] ?? 1);
+                                
+                                Log::info('Free product variation calculated (general product)', [
+                                    'request_id' => $request_id,
+                                    'free_product_id' => $free_product->id,
+                                    'variation_price' => $free_variation_data['price'],
+                                    'display_price' => $free_product_display_price,
+                                    'variation_qty' => $c['free_product']['qty'] ?? 1,
+                                    'total_variation_cost' => $free_variation_data['price'] * ($c['free_product']['qty'] ?? 1),
+                                    'note' => 'Using general product variations, shows in display, adds to Addon Cost'
+                                ]);
+                            }
+                        }                    // Add addon prices to free product price (like POS does)
                     if (isset($c['free_product']['add_on_ids']) && count($c['free_product']['add_on_ids'])) {
                         foreach ($c['free_product']['add_on_ids'] as $key => $id) {
                             $addon = AddOn::find($id);
@@ -486,7 +491,9 @@ class OrderController extends Controller
                         // Multiply by quantity to get total cost
                         $totalAddonPrice += $free_addon_total * ($c['free_product']['qty'] ?? 1);
                         $totalAddonTax += $free_total_addon_tax * ($c['free_product']['qty'] ?? 1);
-                        $free_product_price += $free_addon_total;
+                        
+                        // Addons DON'T add to free product display price (they go to Addon Cost)
+                        // $free_product_price += $free_addon_total; // REMOVED: addons go to Addon Cost only
                         
                         Log::info('Free product addons calculated', [
                             'request_id' => $request_id,
@@ -498,7 +505,7 @@ class OrderController extends Controller
                             'total_addon_tax' => $free_total_addon_tax * ($c['free_product']['qty'] ?? 1),
                             'addon_prices' => $free_add_on_prices,
                             'addon_qtys' => $c['free_product']['add_on_qtys'],
-                            'note' => 'POS-style: addon cost × qty added to totalAddonPrice for Addon Cost section'
+                            'note' => 'Addons go to Addon Cost only, not included in free product display price'
                         ]);
                         
                         // Free product does NOT contribute to productPrice (Items Price)
@@ -507,7 +514,7 @@ class OrderController extends Controller
 
                     $free_product_data = [
                         'product' => $free_product,
-                        'price' => $free_product_price,
+                        'price' => $free_product_display_price, // Shows only variation cost, not addons
                         'qty' => $c['free_product']['qty'] ?? 0,
                         'variations' => $free_variations,
                         'add_on_ids' => $c['free_product']['add_on_ids'] ?? [],
@@ -516,6 +523,8 @@ class OrderController extends Controller
                         'add_on_taxes' => $free_add_on_taxes,
                         'add_on_tax_amount' => $free_total_addon_tax,
                         'tax_amount' => 0, // POS-style: Free products have 0 tax
+                        'display_price' => $free_product_display_price, // For order display: shows variation cost only
+                        'note' => 'Free product displays variation cost only, addons go to Addon Cost section'
                     ];
                 }
 
