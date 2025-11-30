@@ -45,11 +45,15 @@ class OrderController extends Controller
 
     /**
      * Convert mobile app variations format to POS-compatible format
-     * Mobile format: [{"type": "نوع العجين", "value": "Thin رقيقه"}]
-     * POS format: [{"name": "نوع العجين", "values": {"label": ["Thin رقيقه"]}}]
+     * Mobile format: [{"type": "Choose", "value": "Thin رقيقه"}]
+     * POS format: [{"name": "Choose", "values": {"label": ["Thin رقيقه"]}}]
      */
     private function convertMobileVariationsToPOSFormat($mobileVariations) {
         $posVariations = [];
+        
+        if (!is_array($mobileVariations)) {
+            return $posVariations;
+        }
         
         foreach ($mobileVariations as $variation) {
             if (isset($variation['type']) && isset($variation['value'])) {
@@ -61,6 +65,11 @@ class OrderController extends Controller
                 ];
             }
         }
+        
+        Log::info('Converted mobile variations to POS format', [
+            'mobile_variations' => $mobileVariations,
+            'pos_variations' => $posVariations
+        ]);
         
         return $posVariations;
     }
@@ -334,83 +343,42 @@ class OrderController extends Controller
                 ]);
                 $branch_product = $this->product_by_branch->where(['product_id' => $c['product_id'], 'branch_id' => $request['branch_id']])->first();
                 
-                // Handle mobile app variation format - mobile sends incomplete variation data
-                // We need to reconstruct the actual selected variations from available product variations
+                // Handle mobile app variation format - convert mobile format to POS format
                 $convertedVariations = [];
                 
-                // Get the product variations (branch or general)
-                $productVariations = [];
-                if ($branch_product && $branch_product->variations) {
-                    $productVariations = $branch_product->variations;
-                } else {
-                    $productVariations = json_decode($product->variations, true) ?: [];
-                }
-                
-                // For now, if no proper variation data from mobile, try to infer from price and available variations
-                if (isset($c['variation'])) {
+                // Check if mobile app sent variations in the main product
+                if (isset($c['variations']) && is_array($c['variations']) && !empty($c['variations'])) {
+                    // Mobile app format: [{"type": "Choose", "value": "Thin رقيقه"}]
+                    $convertedVariations = $this->convertMobileVariationsToPOSFormat($c['variations']);
+                    
+                    Log::info('Main product mobile variations found and converted', [
+                        'request_id' => $request_id,
+                        'product_id' => $c['product_id'],
+                        'mobile_variations' => $c['variations'],
+                        'converted_variations' => $convertedVariations
+                    ]);
+                } else if (isset($c['variation'])) {
+                    // Fallback: handle old format or price-based variation detection
                     $parsedVariation = json_decode($c['variation'], true);
-                    $mobilePrice = 0;
                     if (is_array($parsedVariation) && !empty($parsedVariation)) {
-                        $mobilePrice = (float)($parsedVariation[0]['price'] ?? 0);
-                    }
-                    
-                    // Calculate what variations would result in this price
-                    $basePrice = $branch_product ? $branch_product->price : $product->price;
-                    $expectedVariationPrice = $mobilePrice - $basePrice;
-                    
-                    // Try to find matching variation combinations that add up to the expected price
-                    if (!empty($productVariations)) {
-                        if ($expectedVariationPrice > 0) {
-                            // Look for variations that match the price difference
-                            foreach ($productVariations as $variation) {
-                                if (isset($variation['values']) && is_array($variation['values'])) {
-                                    foreach ($variation['values'] as $value) {
-                                        if (isset($value['optionPrice']) && (float)$value['optionPrice'] == $expectedVariationPrice) {
-                                            // Found a matching paid variation
-                                            $convertedVariations[] = [
-                                                'name' => $variation['name'],
-                                                'values' => [
-                                                    'label' => [$value['label']]
-                                                ]
-                                            ];
-                                            break 2; // Exit both loops when found
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        
-                        // Add default/free variations for any variation groups not yet included
-                        foreach ($productVariations as $variation) {
-                            // Check if this variation group is already included
-                            $alreadyIncluded = false;
-                            foreach ($convertedVariations as $converted) {
-                                if ($converted['name'] === $variation['name']) {
-                                    $alreadyIncluded = true;
-                                    break;
-                                }
-                            }
-                            
-                            // If not included, add the first (usually free/default) option
-                            if (!$alreadyIncluded && isset($variation['values']) && !empty($variation['values'])) {
-                                $convertedVariations[] = [
-                                    'name' => $variation['name'],
-                                    'values' => [
-                                        'label' => [$variation['values'][0]['label']]
-                                    ]
-                                ];
-                            }
+                        // Try to convert if it looks like mobile format
+                        if (isset($parsedVariation[0]['type']) && isset($parsedVariation[0]['value'])) {
+                            $convertedVariations = $this->convertMobileVariationsToPOSFormat($parsedVariation);
                         }
                     }
+                    
+                    Log::info('Main product variation fallback processing', [
+                        'request_id' => $request_id,
+                        'product_id' => $c['product_id'],
+                        'mobile_variation' => $c['variation'] ?? null,
+                        'converted_variations' => $convertedVariations
+                    ]);
+                } else {
+                    Log::info('No variations found in main product', [
+                        'request_id' => $request_id,
+                        'product_id' => $c['product_id']
+                    ]);
                 }
-                
-                Log::info('Mobile variation processing', [
-                    'request_id' => $request_id,
-                    'product_id' => $c['product_id'],
-                    'mobile_variation' => $c['variation'] ?? null,
-                    'converted_variations' => $convertedVariations,
-                    'product_variations_count' => count($productVariations)
-                ]);
                 
                 $free_product_data = null;
                 if (isset($c['free_product']) && ($c['free_product']['product_id'] ?? $c['free_product']['productId'] ?? null) != null) {
