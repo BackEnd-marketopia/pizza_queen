@@ -744,7 +744,7 @@ class OrderController extends Controller
                         'product_details' => $free_product,
                         'free_product' => null, // No free product for the free product itself
                         'quantity' => $free_product_data['qty'],
-                        'price' => 0, // Free product price should be 0 for Items Price calculation
+                        'price' => $free_product_data['display_price'], // FIXED: Show variation price like POS (not 0)
                         'tax_amount' => 0, // POS-style: Free products have 0 tax
                         'discount_on_product' => 0, // Assuming no discount for free product
                         'discount_type' => 'discount_on_product',
@@ -770,7 +770,9 @@ class OrderController extends Controller
                         'product_id' => $free_or_d['product_id'],
                         'product_name' => $free_product->name,
                         'price' => $free_or_d['price'],
-                        'is_free' => $free_or_d['is_free']
+                        'variation_price' => $free_product_data['display_price'],
+                        'is_free' => $free_or_d['is_free'],
+                        'note' => 'Free product shows variation price in order detail (like POS)'
                     ]);
                     
                     $this->order_detail->insert($free_or_d);
