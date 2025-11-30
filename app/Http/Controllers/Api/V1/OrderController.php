@@ -408,15 +408,39 @@ class OrderController extends Controller
                             $free_product_price += $free_variation_data['price'];
                             $free_variations = $free_variation_data['variations'];
                             
-                            // POS-style: Add free product variation price to total addon price
-                            $totalAddonPrice += $free_variation_data['price'];
+                            // CRITICAL: Add free product variation price to total addon price (like POS)
+                            // This ensures variation cost appears in "Addon Cost" section
+                            $totalAddonPrice += $free_variation_data['price'] * ($c['free_product']['qty'] ?? 1);
                             
                             Log::info('Free product variation calculated', [
                                 'request_id' => $request_id,
                                 'free_product_id' => $free_product->id,
                                 'variation_price' => $free_variation_data['price'],
+                                'variation_qty' => $c['free_product']['qty'] ?? 1,
+                                'total_variation_cost' => $free_variation_data['price'] * ($c['free_product']['qty'] ?? 1),
                                 'variation_details' => $free_variations,
-                                'note' => 'POS-style: variation price added to both free product price AND totalAddonPrice'
+                                'note' => 'POS-style: variation price × qty added to totalAddonPrice for Addon Cost section'
+                            ]);
+                        }
+                    } else {
+                        // Handle case where no branch-specific product but general product variations exist
+                        $general_product_variations = json_decode($free_product->variations ?? '[]', true) ?: [];
+                        if (count($general_product_variations) && isset($c['free_product']['variations'])) {
+                            $convertedFreeVariations = $this->convertMobileVariationsToPOSFormat($c['free_product']['variations']);
+                            $free_variation_data = Helpers::get_varient($general_product_variations, $convertedFreeVariations);
+                            $free_product_price += $free_variation_data['price'];
+                            $free_variations = $free_variation_data['variations'];
+                            
+                            // CRITICAL: Add free product variation price to total addon price (like POS)
+                            $totalAddonPrice += $free_variation_data['price'] * ($c['free_product']['qty'] ?? 1);
+                            
+                            Log::info('Free product variation calculated (general product)', [
+                                'request_id' => $request_id,
+                                'free_product_id' => $free_product->id,
+                                'variation_price' => $free_variation_data['price'],
+                                'variation_qty' => $c['free_product']['qty'] ?? 1,
+                                'total_variation_cost' => $free_variation_data['price'] * ($c['free_product']['qty'] ?? 1),
+                                'note' => 'Using general product variations since no branch-specific variations found'
                             ]);
                         }
                     }
@@ -458,19 +482,23 @@ class OrderController extends Controller
                             0
                         );
                         
-                        // POS-style: Add free product addons to total addon price
-                        $totalAddonPrice += $free_addon_total;
-                        $totalAddonTax += $free_total_addon_tax;
+                        // CRITICAL: Add free product addons to total addon price (like POS)
+                        // Multiply by quantity to get total cost
+                        $totalAddonPrice += $free_addon_total * ($c['free_product']['qty'] ?? 1);
+                        $totalAddonTax += $free_total_addon_tax * ($c['free_product']['qty'] ?? 1);
                         $free_product_price += $free_addon_total;
                         
                         Log::info('Free product addons calculated', [
                             'request_id' => $request_id,
                             'free_product_id' => $free_product->id,
                             'addon_total' => $free_addon_total,
+                            'addon_qty' => $c['free_product']['qty'] ?? 1,
+                            'total_addon_cost' => $free_addon_total * ($c['free_product']['qty'] ?? 1),
                             'addon_tax' => $free_total_addon_tax,
+                            'total_addon_tax' => $free_total_addon_tax * ($c['free_product']['qty'] ?? 1),
                             'addon_prices' => $free_add_on_prices,
                             'addon_qtys' => $c['free_product']['add_on_qtys'],
-                            'note' => 'POS-style: addon cost added to both free product price AND totalAddonPrice'
+                            'note' => 'POS-style: addon cost × qty added to totalAddonPrice for Addon Cost section'
                         ]);
                         
                         // Free product does NOT contribute to productPrice (Items Price)
@@ -600,8 +628,22 @@ class OrderController extends Controller
                 // Calculate product subtotal like POS
                 $productSubtotal = ($product_price_for_items - $discount_on_product) * $c['quantity'];
                 $productPrice += $productSubtotal;
-                $totalAddonPrice += $total_addon_price;
-                $totalAddonTax += $total_addon_tax;
+                
+                // CRITICAL: Multiply main product addon cost by quantity (like POS)
+                $totalAddonPrice += $total_addon_price * $c['quantity'];
+                $totalAddonTax += $total_addon_tax * $c['quantity'];
+                
+                Log::info('Main product totals calculated', [
+                    'request_id' => $request_id,
+                    'product_id' => $c['product_id'],
+                    'product_subtotal' => $productSubtotal,
+                    'addon_price_per_item' => $total_addon_price,
+                    'quantity' => $c['quantity'],
+                    'total_addon_cost' => $total_addon_price * $c['quantity'],
+                    'addon_tax_per_item' => $total_addon_tax,
+                    'total_addon_tax' => $total_addon_tax * $c['quantity'],
+                    'note' => 'POS-style: addon cost and tax multiplied by quantity'
+                ]);
 
                 // CRITICAL: Prepare safe data for database columns
                 $safe_variant = $c['variant'] ?? null;
