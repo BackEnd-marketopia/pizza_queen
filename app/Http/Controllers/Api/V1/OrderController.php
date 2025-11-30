@@ -1079,15 +1079,15 @@ class OrderController extends Controller
             ->paginate($request['limit'], ['*'], 'page', $request['offset']);
 
 
-        $orders->map(function ($data) {
-            $data['deliveryman_review_count'] = DMReview::where(['delivery_man_id' => $data['delivery_man_id'], 'order_id' => $data['id']])->count();
+        $orders->getCollection()->transform(function ($data) {
+            $data->deliveryman_review_count = DMReview::where(['delivery_man_id' => $data->delivery_man_id, 'order_id' => $data->id])->count();
 
             $order_id = $data->id;
             $order_details = $this->order_detail->where('order_id', $order_id)->first();
             $product_id = $order_details?->product_id;
 
-            $data['is_product_available'] = $product_id ? $this->product->find($product_id) ? 1 : 0 : 0;
-            $data['details_count'] = (int)$data->details_count;
+            $data->is_product_available = $product_id ? $this->product->find($product_id) ? 1 : 0 : 0;
+            $data->details_count = (int)$data->details_count;
 
             $productImages = $this->order_detail->where('order_id', $order_id)->pluck('product_id')
                 ->filter()
@@ -1096,7 +1096,7 @@ class OrderController extends Controller
                     return $product ? $product->image : null;
                 })->filter();
 
-            $data['product_images'] = $productImages->toArray();
+            $data->product_images = $productImages->toArray();
 
             // CRITICAL FIX: Recalculate order amounts from order_details to ensure consistency
             // This fixes the issue where order list shows different amounts than actual order
@@ -1137,11 +1137,11 @@ class OrderController extends Controller
                 
                 // Override order amounts with recalculated values
                 // This ensures the list shows the same values as when order was placed
-                $data['items_price'] = Helpers::set_price($itemsPrice);
-                $data['addon_cost'] = Helpers::set_price($totalAddonCost);
-                $data['total_tax_amount'] = Helpers::set_price($totalTax + $totalAddonTax);
-                $data['item_discount'] = Helpers::set_price($itemDiscount);
-                $data['subtotal'] = Helpers::set_price($subtotal);
+                $data->items_price = Helpers::set_price($itemsPrice);
+                $data->addon_cost = Helpers::set_price($totalAddonCost);
+                $data->total_tax_amount = Helpers::set_price($totalTax + $totalAddonTax);
+                $data->item_discount = Helpers::set_price($itemDiscount);
+                $data->subtotal = Helpers::set_price($subtotal);
                 
                 // Note: order_amount already includes delivery_charge, so we keep it as is
                 // order_amount = subtotal + delivery_charge - coupon_discount - extra_discount
