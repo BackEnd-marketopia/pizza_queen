@@ -585,7 +585,7 @@ class POSController extends Controller
 
                     // FIXED: Calculate tax based on base product price only (not including variation/addon)
                     $is_free_product = isset($c['is_free']) && $c['is_free'] ? true : false;
-                    $base_product_price = $branch_product ? $branch_product['price'] : $product['price'];
+                    $base_product_price = $branchProduct ? $branchProduct['price'] : $product['price'];
                     $taxAmount = $is_free_product ? 0 : Helpers::tax_calculate($product, $base_product_price);
 
                     $orderData = [
