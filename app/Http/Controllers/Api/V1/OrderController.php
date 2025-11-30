@@ -1108,15 +1108,11 @@ class OrderController extends Controller
                 $itemDiscount = 0;
                 
                 foreach ($data->details as $detail) {
-                    // Skip free products (is_free = true)
-                    if (isset($detail->is_free) && $detail->is_free) {
-                        continue;
-                    }
-                    
-                    // Calculate items price (price * quantity)
+                    // Calculate items price (price * quantity) - for ALL products
+                    // Note: Free products show their variation price (not 0)
                     $itemsPrice += $detail->price * $detail->quantity;
                     
-                    // Calculate addon cost
+                    // Calculate addon cost - for ALL products (including free ones)
                     // Note: add_on_prices already contains the price per addon item
                     // We need to multiply by add_on_qtys and product quantity
                     $add_on_prices = is_string($detail->add_on_prices) ? json_decode($detail->add_on_prices, true) : $detail->add_on_prices;
@@ -1130,11 +1126,11 @@ class OrderController extends Controller
                         }
                     }
                     
-                    // Calculate tax
+                    // Calculate tax - for ALL products
                     $totalTax += $detail->tax_amount * $detail->quantity;
                     $totalAddonTax += $detail->add_on_tax_amount * $detail->quantity;
                     
-                    // Calculate item discount
+                    // Calculate item discount - for ALL products
                     $itemDiscount += $detail->discount_on_product * $detail->quantity;
                 }
                 
@@ -1229,15 +1225,11 @@ class OrderController extends Controller
             $itemDiscount = 0;
             
             foreach ($details as $detail) {
-                // Skip free products (is_free = true)
-                if (isset($detail->is_free) && $detail->is_free) {
-                    continue;
-                }
-                
-                // Calculate items price (price * quantity)
+                // Calculate items price (price * quantity) - for ALL products
+                // Note: Free products show their variation price (not 0)
                 $itemsPrice += $detail->price * $detail->quantity;
                 
-                // Calculate addon cost
+                // Calculate addon cost - for ALL products (including free ones)
                 // Note: add_on_prices already contains the price per addon item
                 // We need to multiply by add_on_qtys and product quantity
                 $add_on_prices = is_string($detail->add_on_prices) ? json_decode($detail->add_on_prices, true) : $detail->add_on_prices;
@@ -1251,11 +1243,11 @@ class OrderController extends Controller
                     }
                 }
                 
-                // Calculate tax
+                // Calculate tax - for ALL products
                 $totalTax += $detail->tax_amount * $detail->quantity;
                 $totalAddonTax += $detail->add_on_tax_amount * $detail->quantity;
                 
-                // Calculate item discount
+                // Calculate item discount - for ALL products
                 $itemDiscount += $detail->discount_on_product * $detail->quantity;
             }
             
