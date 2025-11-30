@@ -334,8 +334,83 @@ class OrderController extends Controller
                 ]);
                 $branch_product = $this->product_by_branch->where(['product_id' => $c['product_id'], 'branch_id' => $request['branch_id']])->first();
                 
-                // Convert mobile app variations format to POS format for consistency
-                $convertedVariations = $this->convertMobileVariationsToPOSFormat($c['variations'] ?? []);
+                // Handle mobile app variation format - mobile sends incomplete variation data
+                // We need to reconstruct the actual selected variations from available product variations
+                $convertedVariations = [];
+                
+                // Get the product variations (branch or general)
+                $productVariations = [];
+                if ($branch_product && $branch_product->variations) {
+                    $productVariations = $branch_product->variations;
+                } else {
+                    $productVariations = json_decode($product->variations, true) ?: [];
+                }
+                
+                // For now, if no proper variation data from mobile, try to infer from price and available variations
+                if (isset($c['variation'])) {
+                    $parsedVariation = json_decode($c['variation'], true);
+                    $mobilePrice = 0;
+                    if (is_array($parsedVariation) && !empty($parsedVariation)) {
+                        $mobilePrice = (float)($parsedVariation[0]['price'] ?? 0);
+                    }
+                    
+                    // Calculate what variations would result in this price
+                    $basePrice = $branch_product ? $branch_product->price : $product->price;
+                    $expectedVariationPrice = $mobilePrice - $basePrice;
+                    
+                    // Try to find matching variation combinations that add up to the expected price
+                    if (!empty($productVariations)) {
+                        if ($expectedVariationPrice > 0) {
+                            // Look for variations that match the price difference
+                            foreach ($productVariations as $variation) {
+                                if (isset($variation['values']) && is_array($variation['values'])) {
+                                    foreach ($variation['values'] as $value) {
+                                        if (isset($value['optionPrice']) && (float)$value['optionPrice'] == $expectedVariationPrice) {
+                                            // Found a matching paid variation
+                                            $convertedVariations[] = [
+                                                'name' => $variation['name'],
+                                                'values' => [
+                                                    'label' => [$value['label']]
+                                                ]
+                                            ];
+                                            break 2; // Exit both loops when found
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Add default/free variations for any variation groups not yet included
+                        foreach ($productVariations as $variation) {
+                            // Check if this variation group is already included
+                            $alreadyIncluded = false;
+                            foreach ($convertedVariations as $converted) {
+                                if ($converted['name'] === $variation['name']) {
+                                    $alreadyIncluded = true;
+                                    break;
+                                }
+                            }
+                            
+                            // If not included, add the first (usually free/default) option
+                            if (!$alreadyIncluded && isset($variation['values']) && !empty($variation['values'])) {
+                                $convertedVariations[] = [
+                                    'name' => $variation['name'],
+                                    'values' => [
+                                        'label' => [$variation['values'][0]['label']]
+                                    ]
+                                ];
+                            }
+                        }
+                    }
+                }
+                
+                Log::info('Mobile variation processing', [
+                    'request_id' => $request_id,
+                    'product_id' => $c['product_id'],
+                    'mobile_variation' => $c['variation'] ?? null,
+                    'converted_variations' => $convertedVariations,
+                    'product_variations_count' => count($productVariations)
+                ]);
                 
                 $free_product_data = null;
                 if (isset($c['free_product']) && ($c['free_product']['product_id'] ?? $c['free_product']['productId'] ?? null) != null) {
@@ -500,30 +575,23 @@ class OrderController extends Controller
                     ];
                 }
 
-                // CRITICAL: Check if this product is marked as free
-                $is_current_product_free = isset($c['is_free']) && $c['is_free'] === true;
+                // CRITICAL: Main product is NEVER free, even if request says is_free: true
+                // Only the free_product (if exists) should be marked as free
+                $is_current_product_free = false; // Main product is always charged normally
                 
-                if ($is_current_product_free) {
-                    // For free products: variation price only (like POS: E£50.00) but ZERO tax
-                    $product_price_for_items = $variation_price; // Variation price for free products (like POS)
-                    $product_price_for_tax = 0; // ZERO tax for free products
-                    
-                    Log::info('Processing FREE product', [
-                        'request_id' => $request_id,
-                        'product_id' => $c['product_id'],
-                        'base_price' => $base_price,
-                        'variation_price' => $variation_price,
-                        'final_price_for_items' => $product_price_for_items,
-                        'note' => 'Free product - variation price only (E£50.00), ZERO tax'
-                    ]);
-                } else {
-                    // For regular products: full price for both items and tax
-                    $product_price_for_items = $price;
-                    $product_price_for_tax = $price;
-                }
-
-                // The main product is NOT free, only the attached free_product is free
-                // No need to set price to 0 for main product
+                // For main products: always use full price for both items and tax
+                $product_price_for_items = $price; // Full price (base + variation + addon)
+                $product_price_for_tax = $price; // Full price for tax calculation
+                
+                Log::info('Processing MAIN product', [
+                    'request_id' => $request_id,
+                    'product_id' => $c['product_id'],
+                    'base_price' => $base_price,
+                    'variation_price' => $variation_price,
+                    'full_price' => $price,
+                    'final_price_for_items' => $product_price_for_items,
+                    'note' => 'Main product - always charged normally, never free'
+                ]);
 
                 $discount_on_product = Helpers::discount_calculate($discount_data, $product_price_for_items);
 
@@ -599,7 +667,7 @@ class OrderController extends Controller
                     'add_on_prices' => json_encode($add_on_prices),
                     'add_on_taxes' => json_encode($add_on_taxes),
                     'add_on_tax_amount' => $total_addon_tax,
-                    'is_free' => $is_current_product_free, // Use the calculated is_free value
+                    'is_free' => false, // Main product is NEVER free
                     'free_for_product_id' => null,
                     'created_at' => now('Africa/Cairo'),
                     'updated_at' => now('Africa/Cairo')
@@ -610,7 +678,7 @@ class OrderController extends Controller
                     'request_id' => $request_id,
                     'order_id' => $order_id,
                     'product_id' => $c['product_id'],
-                    'is_free' => isset($c['is_free']) && $c['is_free'] ? true : false,
+                    'is_free' => false, // Always false for main product
                     'variation_structure' => $variations,
                     'add_on_ids' => $c['add_on_ids'],
                     'add_on_qtys' => $c['add_on_qtys'],

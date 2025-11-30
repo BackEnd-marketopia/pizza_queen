@@ -1038,21 +1038,17 @@ class Helpers
                                 'values' => []
                             ];
                             
-                            if (isset($variation['values'])) {
-                                if (is_array($variation['values']['label'])) {
-                                    foreach ($variation['values']['label'] as $key => $label) {
-                                        $price = isset($variation['values']['price'][$key]) ? (float)$variation['values']['price'][$key] : 0;
+                            if (isset($variation['values']) && is_array($variation['values'])) {
+                                // Handle the correct structure: values is array of objects with label and optionPrice
+                                foreach ($variation['values'] as $value) {
+                                    if (isset($value['label']) && isset($value['optionPrice'])) {
+                                        $price = (float)$value['optionPrice'];
+                                        $variationPrice += $price;
                                         $variationDetail['values'][] = [
-                                            'label' => $label,
-                                            'price' => $price
+                                            'label' => $value['label'],
+                                            'optionPrice' => $price  // Use optionPrice to match view expectations
                                         ];
                                     }
-                                } else {
-                                    $price = isset($variation['values']['price']) ? (float)$variation['values']['price'] : 0;
-                                    $variationDetail['values'][] = [
-                                        'label' => $variation['values']['label'],
-                                        'price' => $price
-                                    ];
                                 }
                             }
                             
