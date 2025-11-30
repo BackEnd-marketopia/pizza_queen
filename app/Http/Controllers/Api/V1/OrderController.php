@@ -1063,7 +1063,7 @@ class OrderController extends Controller
         $userType = (bool)auth('api')->user() ? 0 : 1;
         $orderFilter = $request->order_filter;
 
-        $orders = $this->order->with(['customer', 'delivery_man.rating'])
+        $orders = $this->order->with(['customer', 'delivery_man.rating', 'details'])
             ->withCount('details')
             ->withCount(['details as total_quantity' => function ($query) {
                 $query->select(DB::raw('sum(quantity)'));
@@ -1097,6 +1097,55 @@ class OrderController extends Controller
                 })->filter();
 
             $data['product_images'] = $productImages->toArray();
+
+            // CRITICAL FIX: Recalculate order amounts from order_details to ensure consistency
+            // This fixes the issue where order list shows different amounts than actual order
+            if ($data->details && $data->details->count() > 0) {
+                $itemsPrice = 0;
+                $totalAddonCost = 0;
+                $totalTax = 0;
+                $totalAddonTax = 0;
+                $itemDiscount = 0;
+                
+                foreach ($data->details as $detail) {
+                    // Skip free products (is_free = true)
+                    if (isset($detail->is_free) && $detail->is_free) {
+                        continue;
+                    }
+                    
+                    // Calculate items price (price * quantity)
+                    $itemsPrice += $detail->price * $detail->quantity;
+                    
+                    // Calculate addon cost
+                    $add_on_prices = is_string($detail->add_on_prices) ? json_decode($detail->add_on_prices, true) : $detail->add_on_prices;
+                    if (is_array($add_on_prices)) {
+                        foreach ($add_on_prices as $addon_price) {
+                            $totalAddonCost += $addon_price * $detail->quantity;
+                        }
+                    }
+                    
+                    // Calculate tax
+                    $totalTax += $detail->tax_amount * $detail->quantity;
+                    $totalAddonTax += $detail->add_on_tax_amount * $detail->quantity;
+                    
+                    // Calculate item discount
+                    $itemDiscount += $detail->discount_on_product * $detail->quantity;
+                }
+                
+                // Calculate subtotal
+                $subtotal = $itemsPrice + $totalAddonCost - $itemDiscount;
+                
+                // Override order amounts with recalculated values
+                // This ensures the list shows the same values as when order was placed
+                $data['items_price'] = Helpers::set_price($itemsPrice);
+                $data['addon_cost'] = Helpers::set_price($totalAddonCost);
+                $data['total_tax_amount'] = Helpers::set_price($totalTax + $totalAddonTax);
+                $data['item_discount'] = Helpers::set_price($itemDiscount);
+                $data['subtotal'] = Helpers::set_price($subtotal);
+                
+                // Note: order_amount already includes delivery_charge, so we keep it as is
+                // order_amount = subtotal + delivery_charge - coupon_discount - extra_discount
+            }
 
             return $data;
         });
@@ -1155,6 +1204,57 @@ class OrderController extends Controller
         }
 
         $details = Helpers::order_details_formatter($details);
+
+        // CRITICAL FIX: Recalculate order totals from details to ensure consistency
+        // This fixes the issue where order details show different amounts than placed order
+        if ($details->count() > 0 && isset($details[0]->order)) {
+            $order = $details[0]->order;
+            
+            $itemsPrice = 0;
+            $totalAddonCost = 0;
+            $totalTax = 0;
+            $totalAddonTax = 0;
+            $itemDiscount = 0;
+            
+            foreach ($details as $detail) {
+                // Skip free products (is_free = true)
+                if (isset($detail->is_free) && $detail->is_free) {
+                    continue;
+                }
+                
+                // Calculate items price (price * quantity)
+                $itemsPrice += $detail->price * $detail->quantity;
+                
+                // Calculate addon cost
+                $add_on_prices = is_string($detail->add_on_prices) ? json_decode($detail->add_on_prices, true) : $detail->add_on_prices;
+                if (is_array($add_on_prices)) {
+                    foreach ($add_on_prices as $addon_price) {
+                        $totalAddonCost += $addon_price * $detail->quantity;
+                    }
+                }
+                
+                // Calculate tax
+                $totalTax += $detail->tax_amount * $detail->quantity;
+                $totalAddonTax += $detail->add_on_tax_amount * $detail->quantity;
+                
+                // Calculate item discount
+                $itemDiscount += $detail->discount_on_product * $detail->quantity;
+            }
+            
+            // Calculate subtotal
+            $subtotal = $itemsPrice + $totalAddonCost - $itemDiscount;
+            
+            // Add recalculated amounts to order object
+            // This ensures details view shows the same values as when order was placed
+            $order->items_price = Helpers::set_price($itemsPrice);
+            $order->addon_cost = Helpers::set_price($totalAddonCost);
+            $order->total_tax_amount = Helpers::set_price($totalTax + $totalAddonTax);
+            $order->item_discount = Helpers::set_price($itemDiscount);
+            $order->subtotal = Helpers::set_price($subtotal);
+            
+            // Note: order_amount already includes delivery_charge
+            // order_amount = subtotal + delivery_charge - coupon_discount - extra_discount
+        }
 
         return response()->json($details, 200);
     }
