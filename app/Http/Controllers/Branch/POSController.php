@@ -583,15 +583,17 @@ class POSController extends Controller
                     $discount = Helpers::discount_calculate($discountData, $price);
                     $variations = $variationData['variations'];
 
-                    // Calculate tax based on price
-                    $taxAmount = Helpers::tax_calculate($product, $price);
+                    // FIXED: Calculate tax based on base product price only (not including variation/addon)
+                    $is_free_product = isset($c['is_free']) && $c['is_free'] ? true : false;
+                    $base_product_price = $branch_product ? $branch_product['price'] : $product['price'];
+                    $taxAmount = $is_free_product ? 0 : Helpers::tax_calculate($product, $base_product_price);
 
                     $orderData = [
                         'product_id' => $c['id'],
                         'product_details' => json_encode($product),
                         'quantity' => $c['quantity'],
                         'price' => $price,
-                        'tax_amount' => $taxAmount,
+                        'tax_amount' => $taxAmount, // ZERO for free products
                         'discount_on_product' => $discount,
                         'discount_type' => 'discount_on_product',
                         'variation' => json_encode($variations),
@@ -600,13 +602,14 @@ class POSController extends Controller
                         'add_on_prices' => json_encode($c['add_on_prices']),
                         'add_on_taxes' => json_encode($c['add_on_tax']),
                         'add_on_tax_amount' => $c['addon_total_tax'],
-                        'is_free' => isset($c['is_free']) && $c['is_free'] ? true : false,
+                        'is_free' => $is_free_product,
                         'free_for_product_id' => isset($c['free_for_product']) ? (int)$c['free_for_product'] : null,
                         'created_at' => now('Africa/Cairo'),
                         'updated_at' => now('Africa/Cairo')
                     ];
 
-                    $totalTaxAmount += $orderData['tax_amount'] * $c['quantity'];
+                    // FIXED: Only add tax for non-free products
+                    $totalTaxAmount += $is_free_product ? 0 : ($orderData['tax_amount'] * $c['quantity']);
                     $totalAddonPrice += $addonData['total_add_on_price'];
                     $totalAddonTax += $c['addon_total_tax'];
                     $productPrice += $productSubtotal - $discountOnProduct;

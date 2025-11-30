@@ -2817,4 +2817,7 @@
   'Final Order Amount (includes all charges)' => 'Final Order Amount (includes all charges)',
   'Branch Calculated' => 'Branch Calculated',
   'Base Price' => 'Base Price',
+  'Product Tax' => 'Product Tax',
+  'Total Tax' => 'Total Tax',
+  'Product Taxes' => 'Product Taxes',
 );

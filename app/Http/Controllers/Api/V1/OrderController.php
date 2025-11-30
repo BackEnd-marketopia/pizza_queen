@@ -365,14 +365,15 @@ class OrderController extends Controller
                             $free_product_price += $free_variation_data['price'];
                             $free_variations = $free_variation_data['variations'];
                             
-                            // CRITICAL: Add free product variation price to total addon price
+                            // POS-style: Add free product variation price to total addon price
                             $totalAddonPrice += $free_variation_data['price'];
                             
                             Log::info('Free product variation calculated', [
                                 'request_id' => $request_id,
                                 'free_product_id' => $free_product->id,
                                 'variation_price' => $free_variation_data['price'],
-                                'variation_details' => $free_variations
+                                'variation_details' => $free_variations,
+                                'note' => 'POS-style: variation price added to both free product price AND totalAddonPrice'
                             ]);
                         }
                     }
@@ -381,8 +382,17 @@ class OrderController extends Controller
                     if (isset($c['free_product']['add_on_ids']) && count($c['free_product']['add_on_ids'])) {
                         foreach ($c['free_product']['add_on_ids'] as $key => $id) {
                             $addon = AddOn::find($id);
-                            $free_add_on_prices[] = $addon['price'];
-                            $free_add_on_taxes[] = ($addon['price'] * $addon['tax']) / 100;
+                            if ($addon) {
+                                $free_add_on_prices[] = $addon['price'];
+                                $free_add_on_taxes[] = ($addon['price'] * $addon['tax']) / 100;
+                            } else {
+                                Log::error('Free product addon not found', [
+                                    'request_id' => $request_id,
+                                    'addon_id' => $id
+                                ]);
+                                $free_add_on_prices[] = 0;
+                                $free_add_on_taxes[] = 0;
+                            }
                         }
                         $free_total_addon_tax = array_reduce(
                             array_map(function ($a, $b) {
@@ -405,7 +415,7 @@ class OrderController extends Controller
                             0
                         );
                         
-                        // Add free product addons to total addon price AND to free product price
+                        // POS-style: Add free product addons to total addon price
                         $totalAddonPrice += $free_addon_total;
                         $totalAddonTax += $free_total_addon_tax;
                         $free_product_price += $free_addon_total;
@@ -416,7 +426,8 @@ class OrderController extends Controller
                             'addon_total' => $free_addon_total,
                             'addon_tax' => $free_total_addon_tax,
                             'addon_prices' => $free_add_on_prices,
-                            'addon_qtys' => $c['free_product']['add_on_qtys']
+                            'addon_qtys' => $c['free_product']['add_on_qtys'],
+                            'note' => 'POS-style: addon cost added to both free product price AND totalAddonPrice'
                         ]);
                         
                         // Free product does NOT contribute to productPrice (Items Price)
@@ -433,7 +444,7 @@ class OrderController extends Controller
                         'add_on_prices' => $free_add_on_prices,
                         'add_on_taxes' => $free_add_on_taxes,
                         'add_on_tax_amount' => $free_total_addon_tax,
-                        'tax_amount' => Helpers::tax_calculate($free_product, $free_product_price),
+                        'tax_amount' => 0, // POS-style: Free products have 0 tax
                     ];
                 }
 
@@ -459,6 +470,7 @@ class OrderController extends Controller
                     if (count($branch_product_variations)) {
                         $variation_data = Helpers::get_varient($branch_product_variations, $convertedVariations);
                         $variation_price = $variation_data['price'];
+                        // Like POS: variation price is included in product price
                         $price = $base_price + $variation_price;
                         $variations = $variation_data['variations'];
                     } else {
@@ -476,6 +488,7 @@ class OrderController extends Controller
                     if (count($product_variations)) {
                         $variation_data = Helpers::get_varient($product_variations, $convertedVariations);
                         $variation_price = $variation_data['price'];
+                        // Like POS: variation price is included in product price
                         $price = $base_price + $variation_price;
                         $variations = $variation_data['variations'];
                     } else {
@@ -487,10 +500,32 @@ class OrderController extends Controller
                     ];
                 }
 
+                // CRITICAL: Check if this product is marked as free
+                $is_current_product_free = isset($c['is_free']) && $c['is_free'] === true;
+                
+                if ($is_current_product_free) {
+                    // For free products: variation price only (like POS: E£50.00) but ZERO tax
+                    $product_price_for_items = $variation_price; // Variation price for free products (like POS)
+                    $product_price_for_tax = 0; // ZERO tax for free products
+                    
+                    Log::info('Processing FREE product', [
+                        'request_id' => $request_id,
+                        'product_id' => $c['product_id'],
+                        'base_price' => $base_price,
+                        'variation_price' => $variation_price,
+                        'final_price_for_items' => $product_price_for_items,
+                        'note' => 'Free product - variation price only (E£50.00), ZERO tax'
+                    ]);
+                } else {
+                    // For regular products: full price for both items and tax
+                    $product_price_for_items = $price;
+                    $product_price_for_tax = $price;
+                }
+
                 // The main product is NOT free, only the attached free_product is free
                 // No need to set price to 0 for main product
 
-                $discount_on_product = Helpers::discount_calculate($discount_data, $price);
+                $discount_on_product = Helpers::discount_calculate($discount_data, $product_price_for_items);
 
                 /*calculation for addon and addon tax start*/
                 $add_on_quantities = $c['add_on_qtys'];
@@ -500,9 +535,18 @@ class OrderController extends Controller
 
                 foreach ($c['add_on_ids'] as $key => $id) {
                     $addon = AddOn::find($id);
-                    $add_on_prices[] = $addon['price'];
-                    $add_on_taxes[] = ($addon['price'] * $addon['tax']) / 100;
-                    $total_addon_price += $addon['price'] * $add_on_quantities[$key];
+                    if ($addon) {
+                        $add_on_prices[] = $addon['price'];
+                        $add_on_taxes[] = ($addon['price'] * $addon['tax']) / 100;
+                        $total_addon_price += $addon['price'] * $add_on_quantities[$key];
+                    } else {
+                        Log::error('Main product addon not found', [
+                            'request_id' => $request_id,
+                            'addon_id' => $id
+                        ]);
+                        $add_on_prices[] = 0;
+                        $add_on_taxes[] = 0;
+                    }
                 }
 
                 $total_addon_tax = array_reduce(
@@ -518,7 +562,7 @@ class OrderController extends Controller
                 /*calculation for addon and addon tax end*/
 
                 // Calculate product subtotal like POS
-                $productSubtotal = ($price - $discount_on_product) * $c['quantity'];
+                $productSubtotal = ($product_price_for_items - $discount_on_product) * $c['quantity'];
                 $productPrice += $productSubtotal;
                 $totalAddonPrice += $total_addon_price;
                 $totalAddonTax += $total_addon_tax;
@@ -544,8 +588,8 @@ class OrderController extends Controller
                     'product_details' => $product,
                     'free_product'  => $free_product_data ? json_encode($free_product_data) : null,
                     'quantity' => $c['quantity'],
-                    'price' => $price,
-                    'tax_amount' => Helpers::tax_calculate($product, $price),
+                    'price' => $product_price_for_items,
+                    'tax_amount' => $is_current_product_free ? 0 : Helpers::tax_calculate($product, $base_price), // FIXED: tax on base price only
                     'discount_on_product' => $discount_on_product,
                     'discount_type' => 'discount_on_product',
                     'variant' => $safe_variant, // FIXED: Safe variant data
@@ -555,7 +599,7 @@ class OrderController extends Controller
                     'add_on_prices' => json_encode($add_on_prices),
                     'add_on_taxes' => json_encode($add_on_taxes),
                     'add_on_tax_amount' => $total_addon_tax,
-                    'is_free' => false, // Main product is NEVER free, ignore request value
+                    'is_free' => $is_current_product_free, // Use the calculated is_free value
                     'free_for_product_id' => null,
                     'created_at' => now('Africa/Cairo'),
                     'updated_at' => now('Africa/Cairo')
@@ -578,7 +622,8 @@ class OrderController extends Controller
                         'final_calculated_price' => $price,
                         'discount' => $discount_on_product,
                         'addon_total_price' => $total_addon_price,
-                        'addon_total_tax' => $total_addon_tax
+                        'addon_total_tax' => $total_addon_tax,
+                        'note' => 'POS-style: variation price included in product price, addon price calculated separately'
                     ],
                     'free_product_data' => $free_product_data ? [
                         'product_id' => $free_product_data['product']->id ?? null,
@@ -613,7 +658,7 @@ class OrderController extends Controller
                         'free_product' => null, // No free product for the free product itself
                         'quantity' => $free_product_data['qty'],
                         'price' => 0, // Free product price should be 0 for Items Price calculation
-                        'tax_amount' => $free_product_data['tax_amount'],
+                        'tax_amount' => 0, // POS-style: Free products have 0 tax
                         'discount_on_product' => 0, // Assuming no discount for free product
                         'discount_type' => 'discount_on_product',
                         'variant' => json_encode([]), // FIXED: Empty for free products to avoid size issues
@@ -628,7 +673,8 @@ class OrderController extends Controller
                         'created_at' => now('Africa/Cairo'),
                         'updated_at' => now('Africa/Cairo')
                     ];
-                    $totalTaxAmount += $free_or_d['tax_amount'] * $free_product_data['qty'];
+                    // POS-style: Don't add tax for free products to total tax amount
+                    // $totalTaxAmount += $free_or_d['tax_amount'] * $free_product_data['qty'];
                     
                     // CRITICAL: Validate free product before insertion
                     Log::info('Inserting free product', [
@@ -661,6 +707,9 @@ class OrderController extends Controller
 
             // Calculate final order amount like POS system (INCLUDING delivery charge)
             $totalPrice = $productPrice + $totalAddonPrice;
+            
+            // Calculate tax using individual product tax calculations (original method)
+            // This maintains consistency with how each product tax is calculated
             $finalOrderAmount = $totalPrice + $totalTaxAmount + $totalAddonTax + $deliveryCharge - $or['coupon_discount_amount'];
             
             $or['total_tax_amount'] = $totalTaxAmount;

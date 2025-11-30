@@ -453,12 +453,30 @@ class Helpers
 
     public static function tax_calculate($product, $price)
     {
-        if ($product['tax_type'] == 'percent') {
-            $price_tax = ($price / 100) * $product['tax'];
+        $tax = 0;
+        
+        // التحقق من وجود إعداد ضريبة للمنتج
+        $productTax = $product['tax'] ?? null;
+        $productTaxType = $product['tax_type'] ?? null;
+        
+        // إذا كان للمنتج ضريبة محددة (حتى لو 0)، استخدمها
+        if ($productTax !== null && $productTaxType !== null) {
+            if ($productTaxType == 'percent') {
+                $tax = ($price / 100) * $productTax;
+            } else {
+                $tax = $productTax;
+            }
         } else {
-            $price_tax = $product['tax'];
+            // فقط إذا لم يكن للمنتج أي إعداد ضريبة، طبق الضريبة العامة
+            $defaultTaxRate = self::get_business_settings('default_tax_rate') ?? 0;
+            $applyDefaultTax = self::get_business_settings('apply_default_tax') ?? 0;
+            
+            if ($applyDefaultTax && $defaultTaxRate > 0) {
+                $tax = ($price / 100) * $defaultTaxRate;
+            }
         }
-        return self::set_price($price_tax);
+        
+        return self::set_price($tax);
     }
 
     public static function discount_calculate($product, $price)
