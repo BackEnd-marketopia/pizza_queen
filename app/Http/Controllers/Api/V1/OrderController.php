@@ -1117,10 +1117,16 @@ class OrderController extends Controller
                     $itemsPrice += $detail->price * $detail->quantity;
                     
                     // Calculate addon cost
+                    // Note: add_on_prices already contains the price per addon item
+                    // We need to multiply by add_on_qtys and product quantity
                     $add_on_prices = is_string($detail->add_on_prices) ? json_decode($detail->add_on_prices, true) : $detail->add_on_prices;
-                    if (is_array($add_on_prices)) {
-                        foreach ($add_on_prices as $addon_price) {
-                            $totalAddonCost += $addon_price * $detail->quantity;
+                    $add_on_qtys = is_string($detail->add_on_qtys) ? json_decode($detail->add_on_qtys, true) : $detail->add_on_qtys;
+                    
+                    if (is_array($add_on_prices) && is_array($add_on_qtys)) {
+                        foreach ($add_on_prices as $index => $addon_price) {
+                            $addon_qty = $add_on_qtys[$index] ?? 1;
+                            // addon price × addon quantity × product quantity
+                            $totalAddonCost += $addon_price * $addon_qty * $detail->quantity;
                         }
                     }
                     
@@ -1232,10 +1238,16 @@ class OrderController extends Controller
                 $itemsPrice += $detail->price * $detail->quantity;
                 
                 // Calculate addon cost
+                // Note: add_on_prices already contains the price per addon item
+                // We need to multiply by add_on_qtys and product quantity
                 $add_on_prices = is_string($detail->add_on_prices) ? json_decode($detail->add_on_prices, true) : $detail->add_on_prices;
-                if (is_array($add_on_prices)) {
-                    foreach ($add_on_prices as $addon_price) {
-                        $totalAddonCost += $addon_price * $detail->quantity;
+                $add_on_qtys = is_string($detail->add_on_qtys) ? json_decode($detail->add_on_qtys, true) : $detail->add_on_qtys;
+                
+                if (is_array($add_on_prices) && is_array($add_on_qtys)) {
+                    foreach ($add_on_prices as $index => $addon_price) {
+                        $addon_qty = $add_on_qtys[$index] ?? 1;
+                        // addon price × addon quantity × product quantity
+                        $totalAddonCost += $addon_price * $addon_qty * $detail->quantity;
                     }
                 }
                 
