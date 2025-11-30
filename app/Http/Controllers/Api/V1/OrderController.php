@@ -1137,8 +1137,8 @@ class OrderController extends Controller
                 // Calculate subtotal (before delivery, coupons, extra discount)
                 $subtotal = $itemsPrice + $totalAddonCost - $itemDiscount;
                 
-                // CRITICAL FIX: Frontend calculates delivery separately
-                // So order_amount should be subtotal without delivery_charge
+                // CRITICAL FIX: Frontend adds delivery separately
+                // So order_amount should NOT include delivery_charge
                 // order_amount = subtotal - coupon_discount - extra_discount (NO delivery)
                 $orderAmountWithoutDelivery = $subtotal - ($data->coupon_discount_amount ?? 0) - ($data->extra_discount ?? 0);
                 
@@ -1150,8 +1150,7 @@ class OrderController extends Controller
                 $data->subtotal = Helpers::set_price($subtotal);
                 $data->order_amount = Helpers::set_price($orderAmountWithoutDelivery);
                 
-                // Remove delivery_charge from response as frontend calculates it
-                unset($data->delivery_charge);
+                // Note: delivery_charge remains in response but NOT included in order_amount
             }
 
             return $data;
@@ -1253,8 +1252,8 @@ class OrderController extends Controller
             // Calculate subtotal (before delivery, coupons, extra discount)
             $subtotal = $itemsPrice + $totalAddonCost - $itemDiscount;
             
-            // CRITICAL FIX: Frontend calculates delivery separately
-            // So order_amount should be subtotal without delivery_charge
+            // CRITICAL FIX: Frontend adds delivery separately
+            // So order_amount should NOT include delivery_charge
             // order_amount = subtotal - coupon_discount - extra_discount (NO delivery)
             $orderAmountWithoutDelivery = $subtotal - ($order->coupon_discount_amount ?? 0) - ($order->extra_discount ?? 0);
             
@@ -1266,8 +1265,7 @@ class OrderController extends Controller
             $order->subtotal = Helpers::set_price($subtotal);
             $order->order_amount = Helpers::set_price($orderAmountWithoutDelivery);
             
-            // Remove delivery_charge from order object as frontend calculates it
-            unset($order->delivery_charge);
+            // Note: delivery_charge remains in response but NOT included in order_amount
         }
 
         return response()->json($details, 200);
