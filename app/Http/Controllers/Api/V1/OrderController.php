@@ -1137,12 +1137,6 @@ class OrderController extends Controller
                 // Calculate subtotal (before delivery, coupons, extra discount)
                 $subtotal = $itemsPrice + $totalAddonCost - $itemDiscount;
                 
-                // CRITICAL: order_amount in DB already includes delivery_charge
-                // So we need to recalculate it correctly:
-                // order_amount = subtotal + delivery_charge - coupon_discount - extra_discount
-                // Therefore: subtotal = order_amount - delivery_charge + coupon_discount + extra_discount
-                $recalculatedOrderAmount = $subtotal + $data->delivery_charge - ($data->coupon_discount_amount ?? 0) - ($data->extra_discount ?? 0);
-                
                 // Override order amounts with recalculated values
                 // This ensures the list shows the same values as when order was placed
                 $data->items_price = Helpers::set_price($itemsPrice);
@@ -1150,9 +1144,9 @@ class OrderController extends Controller
                 $data->total_tax_amount = Helpers::set_price($totalTax + $totalAddonTax);
                 $data->item_discount = Helpers::set_price($itemDiscount);
                 $data->subtotal = Helpers::set_price($subtotal);
-                $data->order_amount = Helpers::set_price($recalculatedOrderAmount);
                 
-                // Note: delivery_charge, coupon_discount_amount, and extra_discount remain as is from DB
+                // Note: order_amount and delivery_charge remain as is from DB
+                // order_amount already includes: subtotal + delivery_charge - coupon_discount - extra_discount
             }
 
             return $data;
@@ -1251,13 +1245,8 @@ class OrderController extends Controller
                 $itemDiscount += $detail->discount_on_product * $detail->quantity;
             }
             
-            // Calculate subtotal
+            // Calculate subtotal (before delivery, coupons, extra discount)
             $subtotal = $itemsPrice + $totalAddonCost - $itemDiscount;
-            
-            // CRITICAL: order_amount in DB already includes delivery_charge
-            // So we need to recalculate it correctly:
-            // order_amount = subtotal + delivery_charge - coupon_discount - extra_discount
-            $recalculatedOrderAmount = $subtotal + $order->delivery_charge - ($order->coupon_discount_amount ?? 0) - ($order->extra_discount ?? 0);
             
             // Add recalculated amounts to order object
             // This ensures details view shows the same values as when order was placed
@@ -1266,9 +1255,9 @@ class OrderController extends Controller
             $order->total_tax_amount = Helpers::set_price($totalTax + $totalAddonTax);
             $order->item_discount = Helpers::set_price($itemDiscount);
             $order->subtotal = Helpers::set_price($subtotal);
-            $order->order_amount = Helpers::set_price($recalculatedOrderAmount);
             
-            // Note: delivery_charge, coupon_discount_amount, and extra_discount remain as is from DB
+            // Note: order_amount and delivery_charge remain as is from DB
+            // order_amount already includes: subtotal + delivery_charge - coupon_discount - extra_discount
         }
 
         return response()->json($details, 200);
