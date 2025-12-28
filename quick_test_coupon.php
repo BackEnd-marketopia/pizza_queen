@@ -30,9 +30,9 @@
     <?php
     // Database connection
     $host = 'localhost';
-    $dbname = 'pizza_queen'; // غير هذا لاسم قاعدة البيانات الفعلي
-    $username = 'root';      // غير هذا للـ username الفعلي
-    $password = '';          // غير هذا للـ password الفعلي
+    $dbname = 'u850921305_pizza_queen'; // غير هذا لاسم قاعدة البيانات الفعلي
+    $username = 'u850921305_pizza_queen';      // غير هذا للـ username الفعلي
+    $password = '8C7*RL>gY3';          // غير هذا للـ password الفعلي
     
     try {
         $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
