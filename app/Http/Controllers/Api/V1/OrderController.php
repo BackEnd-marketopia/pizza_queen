@@ -807,9 +807,29 @@ class OrderController extends Controller
             if (!empty($request['coupon_code'])) {
                 $coupon = Coupon::active()->where('code', $request['coupon_code'])->first();
                 
+                Log::info('🔍 Coupon lookup started', [
+                    'request_id' => $request_id,
+                    'coupon_code' => $request['coupon_code'],
+                    'coupon_found' => $coupon ? 'YES' : 'NO',
+                    'coupon_active' => $coupon ? 'YES' : 'NO'
+                ]);
+                
                 if ($coupon) {
                     $couponValid = true;
                     $couponErrorReason = '';
+                    
+                    Log::info('📋 Coupon details', [
+                        'request_id' => $request_id,
+                        'coupon_code' => $coupon->code,
+                        'coupon_type' => $coupon->coupon_type,
+                        'discount' => $coupon->discount,
+                        'discount_type' => $coupon->discount_type,
+                        'min_purchase' => $coupon->min_purchase,
+                        'max_discount' => $coupon->max_discount,
+                        'limit' => $coupon->limit,
+                        'start_date' => $coupon->start_date,
+                        'expire_date' => $coupon->expire_date
+                    ]);
                     
                     // VALIDATION 1: Check coupon type (first_order vs default)
                     if ($coupon->coupon_type == 'first_order') {
@@ -817,36 +837,59 @@ class OrderController extends Controller
                         if (!(bool)auth('api')->user()) {
                             $couponValid = false;
                             $couponErrorReason = 'First order coupon requires authentication';
-                            Log::warning('First order coupon used by guest', [
+                            Log::warning('❌ First order coupon used by guest', [
                                 'request_id' => $request_id,
                                 'coupon_code' => $request['coupon_code']
                             ]);
                         } else {
-                            // Check if user has previous orders
-                            $previousOrdersCount = $this->order->where(['user_id' => auth('api')->user()->id, 'is_guest' => 0])->count();
+                            // CRITICAL FIX: Exclude CURRENT order from count (only check PREVIOUS orders)
+                            $previousOrdersCount = $this->order
+                                ->where('user_id', auth('api')->user()->id)
+                                ->where('is_guest', 0)
+                                ->where('id', '!=', $order_id) // Exclude current order
+                                ->count();
+                            
+                            Log::info('👤 Customer order history check', [
+                                'request_id' => $request_id,
+                                'customer_id' => auth('api')->user()->id,
+                                'previous_orders_count' => $previousOrdersCount,
+                                'current_order_id' => $order_id,
+                                'is_first_order' => $previousOrdersCount == 0 ? 'YES' : 'NO'
+                            ]);
                             if ($previousOrdersCount > 0) {
                                 $couponValid = false;
                                 $couponErrorReason = 'First order coupon not valid - user has previous orders';
-                                Log::warning('First order coupon used by existing customer', [
+                                Log::warning('❌ First order coupon used by existing customer', [
                                     'request_id' => $request_id,
                                     'coupon_code' => $request['coupon_code'],
-                                    'previous_orders' => $previousOrdersCount
+                                    'previous_orders' => $previousOrdersCount,
+                                    'customer_id' => auth('api')->user()->id
                                 ]);
                             }
                         }
                     } else {
                         // VALIDATION 2: Check usage limit for default coupons
                         if ($coupon->limit !== null) {
-                            $couponUsageCount = $this->order->where([
-                                'user_id' => $userId,
+                            // Exclude current order from usage count
+                            $couponUsageCount = $this->order
+                                ->where('user_id', $userId)
+                                ->where('coupon_code', $request['coupon_code'])
+                                ->where('is_guest', $userType)
+                                ->where('id', '!=', $order_id) // Exclude current order
+                                ->count();
+                            
+                            Log::info('📊 Coupon usage check', [
+                                'request_id' => $request_id,
                                 'coupon_code' => $request['coupon_code'],
-                                'is_guest' => $userType
-                            ])->count();
+                                'usage_count' => $couponUsageCount,
+                                'limit' => $coupon->limit,
+                                'customer_id' => $userId
+                            ]);
                             
                             if ($couponUsageCount >= $coupon->limit) {
                                 $couponValid = false;
                                 $couponErrorReason = 'Coupon usage limit exceeded';
-                                Log::warning('Coupon limit exceeded', [
+                                Log::warning('❌ Coupon limit exceeded', [
                                     'request_id' => $request_id,
                                     'coupon_code' => $request['coupon_code'],
                                     'usage_count' => $couponUsageCount,
@@ -860,15 +903,18 @@ class OrderController extends Controller
                         // Calculate subtotal (Items Price + Addon Cost) - Same as shown on screen
                         $subtotal = $productPrice + $totalAddonPrice;
                         
-                        Log::info('Coupon validation started', [
+                        Log::info('💰 Coupon calculation started', [
                             'request_id' => $request_id,
                             'coupon_code' => $request['coupon_code'],
                             'coupon_type' => $coupon->coupon_type,
                             'subtotal' => $subtotal,
+                            'product_price' => $productPrice,
+                            'addon_price' => $totalAddonPrice,
                             'min_purchase' => $coupon->min_purchase,
                             'discount' => $coupon->discount,
                             'discount_type' => $coupon->discount_type,
-                            'max_discount' => $coupon->max_discount
+                            'max_discount' => $coupon->max_discount,
+                            'meets_min_purchase' => $subtotal >= $coupon->min_purchase ? 'YES' : 'NO'
                         ]);
                         
                         // VALIDATION 3: Check minimum purchase requirement
@@ -924,25 +970,31 @@ class OrderController extends Controller
                                 ]);
                             }
                         } else {
-                            Log::warning('Coupon minimum purchase not met', [
+                            Log::warning('❌ Coupon minimum purchase not met', [
                                 'request_id' => $request_id,
+                                'order_id' => $order_id,
                                 'coupon_code' => $request['coupon_code'],
                                 'subtotal' => $subtotal,
                                 'min_purchase' => $coupon->min_purchase,
-                                'difference' => $coupon->min_purchase - $subtotal
+                                'difference' => $coupon->min_purchase - $subtotal,
+                                'need_to_add' => 'Customer needs to add ' . ($coupon->min_purchase - $subtotal) . ' more to use this coupon'
                             ]);
                         }
                     } else {
-                        Log::warning('Coupon validation failed', [
+                        Log::warning('❌ Coupon validation failed', [
                             'request_id' => $request_id,
+                            'order_id' => $order_id,
                             'coupon_code' => $request['coupon_code'],
-                            'reason' => $couponErrorReason
+                            'reason' => $couponErrorReason,
+                            'customer_id' => $userId
                         ]);
                     }
                 } else {
-                    Log::warning('Coupon not found or inactive', [
+                    Log::warning('❌ Coupon not found or inactive', [
                         'request_id' => $request_id,
-                        'coupon_code' => $request['coupon_code']
+                        'order_id' => $order_id,
+                        'coupon_code' => $request['coupon_code'],
+                        'note' => 'Check if coupon exists in database and is active (status=1, dates valid)'
                     ]);
                 }
             }
