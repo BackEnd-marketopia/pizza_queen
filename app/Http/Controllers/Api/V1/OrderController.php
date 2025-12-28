@@ -805,27 +805,55 @@ class OrderController extends Controller
             $couponDiscountTitle = '';
             
             if (!empty($request['coupon_code'])) {
+                // First check if coupon exists at all (without active scope)
+                $couponRaw = Coupon::where('code', $request['coupon_code'])->first();
+                
+                Log::info('🔍 Coupon RAW lookup (without active scope)', [
+                    'request_id' => $request_id,
+                    'coupon_code' => $request['coupon_code'],
+                    'exists_in_db' => $couponRaw ? 'YES' : 'NO',
+                    'status' => $couponRaw ? $couponRaw->status : 'N/A',
+                    'start_date' => $couponRaw ? $couponRaw->start_date : 'N/A',
+                    'expire_date' => $couponRaw ? $couponRaw->expire_date : 'N/A',
+                    'today' => now()->format('Y-m-d'),
+                    'passes_active_check' => $couponRaw ? (
+                        $couponRaw->status == 1 && 
+                        $couponRaw->start_date <= now()->format('Y-m-d') && 
+                        $couponRaw->expire_date >= now()->format('Y-m-d') ? 'YES' : 'NO'
+                    ) : 'N/A'
+                ]);
+                
+                // Then get with active scope
                 $coupon = Coupon::active()->where('code', $request['coupon_code'])->first();
                 
-                Log::info('🔍 Coupon lookup started', [
+                Log::info('🔍 Coupon lookup with ACTIVE scope', [
                     'request_id' => $request_id,
                     'coupon_code' => $request['coupon_code'],
                     'coupon_found' => $coupon ? 'YES' : 'NO',
-                    'coupon_active' => $coupon ? 'YES' : 'NO'
+                    'coupon_active' => $coupon ? 'YES' : 'NO',
+                    'WARNING' => !$coupon && $couponRaw ? '⚠️ COUPON EXISTS but FAILED active() scope check!' : 'OK'
                 ]);
                 
                 if ($coupon) {
                     $couponValid = true;
                     $couponErrorReason = '';
                     
-                    Log::info('📋 Coupon details', [
+                    // Get raw attributes before accessors modify them
+                    $rawDiscount = $coupon->getAttributes()['discount'] ?? null;
+                    $rawMinPurchase = $coupon->getAttributes()['min_purchase'] ?? null;
+                    $rawMaxDiscount = $coupon->getAttributes()['max_discount'] ?? null;
+                    
+                    Log::info('📋 Coupon details (RAW from DB + After Accessors)', [
                         'request_id' => $request_id,
                         'coupon_code' => $coupon->code,
                         'coupon_type' => $coupon->coupon_type,
-                        'discount' => $coupon->discount,
+                        'discount_RAW_from_DB' => $rawDiscount,
+                        'discount_AFTER_accessor' => $coupon->discount,
                         'discount_type' => $coupon->discount_type,
-                        'min_purchase' => $coupon->min_purchase,
-                        'max_discount' => $coupon->max_discount,
+                        'min_purchase_RAW' => $rawMinPurchase,
+                        'min_purchase_AFTER_accessor' => $coupon->min_purchase,
+                        'max_discount_RAW' => $rawMaxDiscount,
+                        'max_discount_AFTER_accessor' => $coupon->max_discount,
                         'limit' => $coupon->limit,
                         'start_date' => $coupon->start_date,
                         'expire_date' => $coupon->expire_date
@@ -922,21 +950,44 @@ class OrderController extends Controller
                             // Calculate discount based on type
                             if ($coupon->discount_type == 'percent') {
                                 // Calculate percentage discount
-                                $couponDiscountAmount = ($subtotal * $coupon->discount) / 100;
+                                $rawCalculation = ($subtotal * $coupon->discount) / 100;
+                                $couponDiscountAmount = $rawCalculation;
+                                
+                                Log::info('💵 Percentage discount calculation STEP BY STEP', [
+                                    'request_id' => $request_id,
+                                    'step_1_subtotal' => $subtotal,
+                                    'step_2_discount_percent' => $coupon->discount,
+                                    'step_3_calculation' => "({$subtotal} × {$coupon->discount}) ÷ 100",
+                                    'step_4_raw_result' => $rawCalculation,
+                                    'step_5_max_discount_limit' => $coupon->max_discount
+                                ]);
                                 
                                 // Apply max discount limit
                                 if ($couponDiscountAmount > $coupon->max_discount) {
+                                    $beforeMax = $couponDiscountAmount;
                                     $couponDiscountAmount = $coupon->max_discount;
-                                    Log::info('Coupon max discount applied', [
+                                    Log::info('🔒 Coupon max discount applied', [
                                         'request_id' => $request_id,
-                                        'calculated_discount' => ($subtotal * $coupon->discount) / 100,
+                                        'calculated_discount' => $beforeMax,
                                         'max_discount' => $coupon->max_discount,
                                         'final_discount' => $couponDiscountAmount
                                     ]);
                                 }
+                                
+                                Log::info('✅ FINAL Calculated Discount (Percent)', [
+                                    'request_id' => $request_id,
+                                    'final_discount_amount' => $couponDiscountAmount,
+                                    'will_be_saved_as' => Helpers::set_price($couponDiscountAmount)
+                                ]);
                             } else {
                                 // Amount discount (fixed value)
                                 $couponDiscountAmount = $coupon->discount;
+                                
+                                Log::info('✅ FINAL Calculated Discount (Fixed)', [
+                                    'request_id' => $request_id,
+                                    'fixed_discount_amount' => $couponDiscountAmount,
+                                    'will_be_saved_as' => Helpers::set_price($couponDiscountAmount)
+                                ]);
                             }
                             
                             $couponDiscountTitle = $coupon->title;
