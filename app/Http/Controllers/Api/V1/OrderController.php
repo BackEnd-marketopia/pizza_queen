@@ -906,6 +906,23 @@ class OrderController extends Controller
                                     ? "({$subtotal} * {$coupon->discount}%) = {$couponDiscountAmount}"
                                     : "Fixed amount: {$couponDiscountAmount}"
                             ]);
+                            
+                            // Special log for first order coupons
+                            if ($coupon->coupon_type == 'first_order') {
+                                Log::info('🎉 FIRST ORDER COUPON SUCCESSFULLY APPLIED', [
+                                    'request_id' => $request_id,
+                                    'order_id' => $order_id,
+                                    'customer_id' => auth('api')->user()->id,
+                                    'customer_name' => auth('api')->user()->f_name . ' ' . auth('api')->user()->l_name,
+                                    'customer_email' => auth('api')->user()->email,
+                                    'customer_phone' => auth('api')->user()->phone,
+                                    'coupon_code' => $request['coupon_code'],
+                                    'discount_amount' => $couponDiscountAmount,
+                                    'order_subtotal' => $subtotal,
+                                    'timestamp' => now(),
+                                    'note' => 'This is the customer\'s FIRST order with coupon discount'
+                                ]);
+                            }
                         } else {
                             Log::warning('Coupon minimum purchase not met', [
                                 'request_id' => $request_id,

@@ -226,6 +226,7 @@
                                 <th>{{translate('Customer_Info')}}</th>
                                 <th>{{translate('branch')}}</th>
                                 <th>{{translate('Total_Amount')}}</th>
+                                <th>{{translate('Coupon')}}</th>
                                 <th>{{translate('Order_Status')}}</th>
                                 <th>{{translate('Order_Type')}}</th>
                                 <th class="text-center">{{translate('actions')}}</th>
@@ -273,6 +274,14 @@
                                         <span class="text-success">{{translate('paid')}}</span>
                                     @else
                                         <span class="text-danger">{{translate('unpaid')}}</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if($order['coupon_code'])
+                                        <span class="badge badge-soft-info">{{ $order['coupon_code'] }}</span>
+                                        <small class="text-success d-block">-{{ Helpers::set_symbol($order['coupon_discount_amount']) }}</small>
+                                    @else
+                                        <span class="text-muted">-</span>
                                     @endif
                                 </td>
                                 <td class="text-capitalize">

@@ -2820,4 +2820,6 @@
   'Product Tax' => 'Product Tax',
   'Total Tax' => 'Total Tax',
   'Product Taxes' => 'Product Taxes',
+  'First Order with Coupon' => 'First Order with Coupon',
+  'Coupon Code' => 'Coupon Code',
 );

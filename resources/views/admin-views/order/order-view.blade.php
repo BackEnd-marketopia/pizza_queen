@@ -12,6 +12,18 @@
                 </span>
             </h2>
             <span class="badge badge-soft-dark rounded-50 fz-14">{{$order->details->count()}}</span>
+            
+            @php($isFirstOrderWithCoupon = false)
+            @if($order['coupon_code'] && $order->customer)
+                @php($previousOrders = \App\Model\Order::where('user_id', $order->customer->id)->where('id', '<', $order->id)->where('is_guest', 0)->count())
+                @if($previousOrders == 0)
+                    @php($isFirstOrderWithCoupon = true)
+                @endif
+            @endif
+            
+            @if($isFirstOrderWithCoupon)
+                <span class="badge badge-soft-success fz-14">🎉 {{translate('First Order with Coupon')}}</span>
+            @endif
         </div>
         <div class="row" id="printableArea">
             <div class="col-lg-8 mb-3 mb-lg-0">
@@ -400,7 +412,11 @@
                                         </div>
                                     </dt>
                                     <dd class="col-6 text-dark text-right">
-                                        - {{ Helpers::set_symbol($order['coupon_discount_amount']) }}</dd>
+                                        - {{ Helpers::set_symbol($order['coupon_discount_amount']) }}
+                                        @if($order['coupon_code'])
+                                            <br><small class="badge badge-soft-info">{{translate('Coupon Code')}}: {{ $order['coupon_code'] }}</small>
+                                        @endif
+                                    </dd>
 
                                     <dt class="col-6">
                                         <div class="d-flex max-w220 ml-auto">
