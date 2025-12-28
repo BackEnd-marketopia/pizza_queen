@@ -28,6 +28,27 @@
     <p><strong>الوقت:</strong> <?php echo date('Y-m-d H:i:s'); ?></p>
     
     <?php
+    // Handle fix button
+    $fixMessage = '';
+    if (isset($_POST['fix_max_discount'])) {
+        try {
+            $pdoFix = new PDO("mysql:host=localhost;dbname=u850921305_pizza_queen;charset=utf8mb4", 'u850921305_pizza_queen', '8C7*RL>gY3');
+            $pdoFix->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            
+            $stmtFix = $pdoFix->prepare("UPDATE coupons SET max_discount = 200 WHERE code = 'Queen30'");
+            $stmtFix->execute();
+            
+            $fixMessage = '<div class="section" style="background:#d4edda;border-left-color:#28a745"><p class="success" style="font-size:18px">✅ تم الإصلاح بنجاح! Max Discount = 200 جنيه</p><p>جرب الآن عمل طلب جديد باستخدام الكوبون</p></div>';
+            
+            // Refresh to show new values
+            echo '<meta http-equiv="refresh" content="2">';
+        } catch (Exception $e) {
+            $fixMessage = '<div class="section" style="background:#f8d7da;border-left-color:#dc3545"><p class="error">❌ فشل الإصلاح: ' . $e->getMessage() . '</p></div>';
+        }
+    }
+    
+    echo $fixMessage;
+    
     // Database connection
     $host = 'localhost';
     $dbname = 'u850921305_pizza_queen'; // غير هذا لاسم قاعدة البيانات الفعلي
@@ -76,7 +97,14 @@
             echo '<tr><td>Min Purchase</td><td>' . $coupon['min_purchase'] . '</td><td>' .
                 ($coupon['min_purchase'] > 0 ? '<span class="warning">⚠️ يتطلب ' . $coupon['min_purchase'] . ' جنيه على الأقل</span>' : '<span class="success">✅ لا يوجد حد أدنى</span>') .
                 '</td></tr>';
-            echo '<tr><td>Max Discount</td><td>' . $coupon['max_discount'] . '</td><td></td></tr>';
+            
+            $maxDiscountIssue = $coupon['max_discount'] == 0 || $coupon['max_discount'] < 10;
+            echo '<tr class="' . ($maxDiscountIssue ? 'highlight' : '') . '"><td>Max Discount</td><td><strong>' . $coupon['max_discount'] . '</strong></td><td>';
+            if ($maxDiscountIssue) {
+                echo '<span class="error">❌ المشكلة هنا! Max Discount = 0 يلغي أي خصم</span>';
+            }
+            echo '</td></tr>';
+            
             echo '<tr><td>Limit</td><td>' . ($coupon['limit'] ?? 'غير محدود') . '</td><td></td></tr>';
             
             echo '<tr><td>Status</td><td>' . $coupon['status'] . '</td><td>' .
@@ -93,6 +121,18 @@
             
             if ($overallActive) {
                 echo '<p class="success">✅ الكوبون نشط وصالح للاستخدام</p>';
+                
+                // Check for max_discount issue
+                if ($coupon['max_discount'] == 0 || $coupon['max_discount'] < 10) {
+                    echo '<div style="background:#fff3cd;padding:15px;border-radius:5px;margin:15px 0;border:2px solid #ff9800">';
+                    echo '<p class="error" style="font-size:18px;margin:0">🚨 المشكلة المكتشفة: Max Discount = ' . $coupon['max_discount'] . '</p>';
+                    echo '<p style="margin:10px 0 0 0">هذا يعني أن الخصم سيكون دائماً <strong>صفر</strong> حتى لو كانت النسبة 26.32%</p>';
+                    echo '<p style="margin:10px 0"><strong>الحل السريع:</strong> قم بتغيير Max Discount إلى قيمة أعلى (مثلاً 200 جنيه)</p>';
+                    echo '<form method="POST" style="margin-top:10px">';
+                    echo '<button type="submit" name="fix_max_discount" value="1" style="background:#4CAF50;color:white;border:none;padding:12px 30px;font-size:16px;border-radius:5px;cursor:pointer">✅ إصلاح الآن (تغيير Max Discount إلى 200 جنيه)</button>';
+                    echo '</form>';
+                    echo '</div>';
+                }
             } else {
                 echo '<p class="error">❌ الكوبون غير نشط:</p><ul>';
                 if (!$isActive) echo '<li>Status = 0 (غير مفعل)</li>';
@@ -124,11 +164,11 @@
                 
                 if ($coupon['discount_type'] == 'percent') {
                     $rawDiscount = ($testSubtotal * $coupon['discount']) / 100;
-                    $calculation = "({$testSubtotal} × {$coupon['discount']}) ÷ 100 = " . number_format($rawDiscount, 2);
+                    $calculation = "({$testSubtotal} × {$coupon['discount']}) ÷ 100 = <strong style='color:#4CAF50'>" . number_format($rawDiscount, 2) . " جنيه</strong>";
                     
                     if ($rawDiscount > $coupon['max_discount']) {
                         $discount = $coupon['max_discount'];
-                        $calculation .= " → Max: {$coupon['max_discount']}";
+                        $calculation .= " → <span style='color:#f44336;font-weight:bold'>Max: {$coupon['max_discount']} ← المشكلة هنا!</span>";
                     } else {
                         $discount = $rawDiscount;
                     }
@@ -137,17 +177,29 @@
                     $calculation = "مبلغ ثابت = {$discount}";
                 }
                 
-                echo '<tr class="highlight"><td><strong>2. حساب الخصم</strong></td><td><strong>' . $calculation . '</strong></td><td><strong class="success">' . number_format($discount, 2) . ' جنيه</strong></td></tr>';
+                $discountClass = $discount > 0 ? 'success' : 'error';
+                echo '<tr class="highlight"><td><strong>2. حساب الخصم</strong></td><td>' . $calculation . '</td><td><strong class="' . $discountClass . '">' . number_format($discount, 2) . ' جنيه</strong></td></tr>';
+                
+                if ($discount == 0 && $rawDiscount > 0) {
+                    echo '<tr><td colspan="3" style="background:#fff3cd;color:#856404;font-weight:bold">⚠️ الخصم المحسوب = ' . number_format($rawDiscount, 2) . ' جنيه، لكن Max Discount = 0 جعله صفر!</td></tr>';
+                }
                 
                 $finalTotal = $testSubtotal - $discount + 45; // + delivery
                 echo '<tr><td>3. المجموع النهائي</td><td>' . $testSubtotal . ' - ' . number_format($discount, 2) . ' + 45 (توصيل)</td><td><strong>' . number_format($finalTotal, 2) . ' جنيه</strong></td></tr>';
                 
                 echo '</table>';
                 
-                echo '<div style="background:#d4edda;padding:15px;border-radius:5px;margin-top:20px">';
-                echo '<p style="margin:0;font-size:18px"><strong>💰 الخصم المتوقع: ' . number_format($discount, 2) . ' جنيه</strong></p>';
-                echo '<p style="margin:5px 0 0 0;color:#666">من أصل ' . $testSubtotal . ' جنيه</p>';
-                echo '</div>';
+                if ($discount > 0) {
+                    echo '<div style="background:#d4edda;padding:15px;border-radius:5px;margin-top:20px">';
+                    echo '<p style="margin:0;font-size:18px"><strong>💰 الخصم المتوقع: ' . number_format($discount, 2) . ' جنيه</strong></p>';
+                    echo '<p style="margin:5px 0 0 0;color:#666">من أصل ' . $testSubtotal . ' جنيه</p>';
+                    echo '</div>';
+                } else {
+                    echo '<div style="background:#f8d7da;padding:15px;border-radius:5px;margin-top:20px;border:2px solid #f44336">';
+                    echo '<p style="margin:0;font-size:18px;color:#721c24"><strong>❌ الخصم المتوقع: 0.00 جنيه</strong></p>';
+                    echo '<p style="margin:5px 0 0 0;color:#721c24">المشكلة: Max Discount = ' . $coupon['max_discount'] . ' يلغي الخصم المحسوب (' . number_format($rawDiscount, 2) . ' جنيه)</p>';
+                    echo '</div>';
+                }
                 
             } else {
                 echo '<tr><td colspan="3" class="error">❌ الـ Subtotal أقل من الحد الأدنى المطلوب</td></tr>';
@@ -214,6 +266,16 @@
     
     <div class="section" style="background:#fff3cd;border-left-color:#ff9800">
         <h3>📝 ملاحظات مهمة</h3>
+        <ul>
+            <li><strong style="color:#f44336">المشكلة الرئيسية: Max Discount = 0.00</strong> - هذا يلغي أي خصم!</li>
+            <li>استخدم الزر أعلاه لإصلاح المشكلة تلقائياً</li>
+            <li>أو نفذ هذا الأمر يدوياً في phpMyAdmin:</li>
+        </ul>
+        <div style="background:#2b2b2b;padding:15px;border-radius:5px;margin:10px 0">
+            <code style="color:#4CAF50;background:transparent;font-size:14px;display:block">
+                UPDATE coupons SET max_discount = 200 WHERE code = 'Queen30';
+            </code>
+        </div>
         <ul>
             <li>إذا كان الكوبون من نوع <code>first_order</code> والعميل عنده طلبات سابقة، لن يعمل الخصم</li>
             <li>تأكد من أن <code>status = 1</code> في قاعدة البيانات</li>
