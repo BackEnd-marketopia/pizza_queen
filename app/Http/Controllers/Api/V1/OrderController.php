@@ -1003,6 +1003,17 @@ class OrderController extends Controller
             $or['coupon_discount_amount'] = Helpers::set_price($couponDiscountAmount);
             $or['coupon_discount_title'] = $couponDiscountTitle ?: null;
             
+            // CRITICAL LOG: Final coupon values being saved
+            Log::info('💾 FINAL Coupon values to be saved', [
+                'request_id' => $request_id,
+                'order_id' => $order_id,
+                'coupon_code_in_request' => $request['coupon_code'] ?? 'NONE',
+                'coupon_code_to_save' => $or['coupon_code'] ?? 'NONE',
+                'coupon_discount_amount' => $couponDiscountAmount,
+                'coupon_discount_title' => $couponDiscountTitle,
+                'WARNING' => $couponDiscountAmount == 0 ? '⚠️ COUPON DISCOUNT IS ZERO - Check logs above for validation failures' : '✅ Discount applied successfully'
+            ]);
+            
             // Calculate tax using individual product tax calculations (original method)
             // This maintains consistency with how each product tax is calculated
             $finalOrderAmount = $totalPrice + $totalTaxAmount + $totalAddonTax + $deliveryCharge - $couponDiscountAmount;
