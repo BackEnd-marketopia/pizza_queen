@@ -10,6 +10,7 @@ use App\Model\AddOn;
 use App\Model\Branch;
 use Illuminate\Support\Facades\Log;
 use App\Model\BusinessSetting;
+use App\Model\Coupon;
 use App\Model\CustomerAddress;
 use App\Model\DMReview;
 use App\Model\Order;
@@ -283,11 +284,11 @@ class OrderController extends Controller
                 'user_id' => $userId,
                 'is_guest' => $userType,
                 'order_amount' => 0, // Will be calculated after processing cart items
-                'coupon_discount_amount' => Helpers::set_price($request->coupon_discount_amount),
-                'coupon_discount_title' => $request->coupon_discount_title == 0 ? null : 'coupon_discount_title',
+                'coupon_discount_amount' => 0, // Will be calculated by backend, not from request
+                'coupon_discount_title' => null, // Will be set by backend if coupon is valid
                 'payment_status' => $paymentStatus,
                 'order_status' => $orderStatus,
-                'coupon_code' => $request['coupon_code'],
+                'coupon_code' => $request['coupon_code'] ?? null,
                 'payment_method' => $request->payment_method,
                 'transaction_reference' => $request->transaction_reference ?? null,
                 'order_note' => $request['order_note'],
@@ -797,9 +798,145 @@ class OrderController extends Controller
             // Calculate final order amount like POS system (INCLUDING delivery charge)
             $totalPrice = $productPrice + $totalAddonPrice;
             
+            // ============================================
+            // CRITICAL: SERVER-SIDE COUPON VALIDATION & CALCULATION
+            // ============================================
+            $couponDiscountAmount = 0;
+            $couponDiscountTitle = '';
+            
+            if (!empty($request['coupon_code'])) {
+                $coupon = Coupon::active()->where('code', $request['coupon_code'])->first();
+                
+                if ($coupon) {
+                    $couponValid = true;
+                    $couponErrorReason = '';
+                    
+                    // VALIDATION 1: Check coupon type (first_order vs default)
+                    if ($coupon->coupon_type == 'first_order') {
+                        // First order coupons only for authenticated users
+                        if (!(bool)auth('api')->user()) {
+                            $couponValid = false;
+                            $couponErrorReason = 'First order coupon requires authentication';
+                            Log::warning('First order coupon used by guest', [
+                                'request_id' => $request_id,
+                                'coupon_code' => $request['coupon_code']
+                            ]);
+                        } else {
+                            // Check if user has previous orders
+                            $previousOrdersCount = $this->order->where(['user_id' => auth('api')->user()->id, 'is_guest' => 0])->count();
+                            if ($previousOrdersCount > 0) {
+                                $couponValid = false;
+                                $couponErrorReason = 'First order coupon not valid - user has previous orders';
+                                Log::warning('First order coupon used by existing customer', [
+                                    'request_id' => $request_id,
+                                    'coupon_code' => $request['coupon_code'],
+                                    'previous_orders' => $previousOrdersCount
+                                ]);
+                            }
+                        }
+                    } else {
+                        // VALIDATION 2: Check usage limit for default coupons
+                        if ($coupon->limit !== null) {
+                            $couponUsageCount = $this->order->where([
+                                'user_id' => $userId,
+                                'coupon_code' => $request['coupon_code'],
+                                'is_guest' => $userType
+                            ])->count();
+                            
+                            if ($couponUsageCount >= $coupon->limit) {
+                                $couponValid = false;
+                                $couponErrorReason = 'Coupon usage limit exceeded';
+                                Log::warning('Coupon limit exceeded', [
+                                    'request_id' => $request_id,
+                                    'coupon_code' => $request['coupon_code'],
+                                    'usage_count' => $couponUsageCount,
+                                    'limit' => $coupon->limit
+                                ]);
+                            }
+                        }
+                    }
+                    
+                    if ($couponValid) {
+                        // Calculate subtotal (Items Price + Addon Cost) - Same as shown on screen
+                        $subtotal = $productPrice + $totalAddonPrice;
+                        
+                        Log::info('Coupon validation started', [
+                            'request_id' => $request_id,
+                            'coupon_code' => $request['coupon_code'],
+                            'coupon_type' => $coupon->coupon_type,
+                            'subtotal' => $subtotal,
+                            'min_purchase' => $coupon->min_purchase,
+                            'discount' => $coupon->discount,
+                            'discount_type' => $coupon->discount_type,
+                            'max_discount' => $coupon->max_discount
+                        ]);
+                        
+                        // VALIDATION 3: Check minimum purchase requirement
+                        if ($subtotal >= $coupon->min_purchase) {
+                            // Calculate discount based on type
+                            if ($coupon->discount_type == 'percent') {
+                                // Calculate percentage discount
+                                $couponDiscountAmount = ($subtotal * $coupon->discount) / 100;
+                                
+                                // Apply max discount limit
+                                if ($couponDiscountAmount > $coupon->max_discount) {
+                                    $couponDiscountAmount = $coupon->max_discount;
+                                    Log::info('Coupon max discount applied', [
+                                        'request_id' => $request_id,
+                                        'calculated_discount' => ($subtotal * $coupon->discount) / 100,
+                                        'max_discount' => $coupon->max_discount,
+                                        'final_discount' => $couponDiscountAmount
+                                    ]);
+                                }
+                            } else {
+                                // Amount discount (fixed value)
+                                $couponDiscountAmount = $coupon->discount;
+                            }
+                            
+                            $couponDiscountTitle = $coupon->title;
+                            
+                            Log::info('Coupon applied successfully', [
+                                'request_id' => $request_id,
+                                'coupon_code' => $request['coupon_code'],
+                                'coupon_type' => $coupon->coupon_type,
+                                'discount_type' => $coupon->discount_type,
+                                'discount_amount' => $couponDiscountAmount,
+                                'subtotal' => $subtotal,
+                                'calculation' => $coupon->discount_type == 'percent' 
+                                    ? "({$subtotal} * {$coupon->discount}%) = {$couponDiscountAmount}"
+                                    : "Fixed amount: {$couponDiscountAmount}"
+                            ]);
+                        } else {
+                            Log::warning('Coupon minimum purchase not met', [
+                                'request_id' => $request_id,
+                                'coupon_code' => $request['coupon_code'],
+                                'subtotal' => $subtotal,
+                                'min_purchase' => $coupon->min_purchase,
+                                'difference' => $coupon->min_purchase - $subtotal
+                            ]);
+                        }
+                    } else {
+                        Log::warning('Coupon validation failed', [
+                            'request_id' => $request_id,
+                            'coupon_code' => $request['coupon_code'],
+                            'reason' => $couponErrorReason
+                        ]);
+                    }
+                } else {
+                    Log::warning('Coupon not found or inactive', [
+                        'request_id' => $request_id,
+                        'coupon_code' => $request['coupon_code']
+                    ]);
+                }
+            }
+            
+            // Update order with calculated coupon values
+            $or['coupon_discount_amount'] = Helpers::set_price($couponDiscountAmount);
+            $or['coupon_discount_title'] = $couponDiscountTitle ?: null;
+            
             // Calculate tax using individual product tax calculations (original method)
             // This maintains consistency with how each product tax is calculated
-            $finalOrderAmount = $totalPrice + $totalTaxAmount + $totalAddonTax + $deliveryCharge - $or['coupon_discount_amount'];
+            $finalOrderAmount = $totalPrice + $totalTaxAmount + $totalAddonTax + $deliveryCharge - $couponDiscountAmount;
             
             $or['total_tax_amount'] = $totalTaxAmount;
             $or['order_amount'] = Helpers::set_price($finalOrderAmount);
@@ -812,13 +949,19 @@ class OrderController extends Controller
                 'products_inserted' => $inserted_products_count,
                 'requested_order_amount' => $request['order_amount'],
                 'calculated_order_amount' => $finalOrderAmount,
+                'coupon_validation' => [
+                    'client_sent_discount' => $request['coupon_discount_amount'] ?? 0,
+                    'server_calculated_discount' => $couponDiscountAmount,
+                    'discount_difference' => ($request['coupon_discount_amount'] ?? 0) - $couponDiscountAmount,
+                    'note' => 'Server calculation overrides client value for security'
+                ],
                 'detailed_breakdown' => [
                     'main_product_price' => $productPrice,
                     'total_addon_price' => $totalAddonPrice,
                     'total_tax_amount' => $totalTaxAmount,
                     'total_addon_tax' => $totalAddonTax,
                     'delivery_charge' => $deliveryCharge,
-                    'coupon_discount' => $or['coupon_discount_amount'],
+                    'coupon_discount' => $couponDiscountAmount,
                     'subtotal' => $totalPrice,
                     'final_with_delivery' => $finalOrderAmount
                 ],
