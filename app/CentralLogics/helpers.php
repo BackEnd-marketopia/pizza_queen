@@ -21,6 +21,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use SimpleSoftwareIO\QrCode\Facades\QrCode;
@@ -343,21 +344,64 @@ class Helpers
         $key = (array)$config;
         if (isset($key['project_id'])) {
             $url = 'https://fcm.googleapis.com/v1/projects/' . $key['project_id'] . '/messages:send';
+            $accessToken = self::getAccessToken($key);
+            if (empty($accessToken)) {
+                Log::error('FCM send failed: empty access token', [
+                    'project_id' => $key['project_id'] ?? null,
+                    'has_client_email' => !empty($key['client_email']),
+                    'has_private_key' => !empty($key['private_key']),
+                ]);
+                return false;
+            }
             $headers = [
-                'Authorization' => 'Bearer ' . self::getAccessToken($key),
+                'Authorization' => 'Bearer ' . $accessToken,
                 'Content-Type' => 'application/json',
             ];
             try {
-                return Http::withHeaders($headers)->withoutVerifying()->post($url, $data);
+                $response = Http::withHeaders($headers)->withoutVerifying()->post($url, $data);
+
+                if (!$response->successful()) {
+                    Log::error('FCM send failed: non-success response', [
+                        'project_id' => $key['project_id'] ?? null,
+                        'status' => $response->status(),
+                        'body' => $response->body(),
+                        'topic' => data_get($data, 'message.topic'),
+                        'token_exists' => !empty(data_get($data, 'message.token')),
+                        'type' => data_get($data, 'message.data.type'),
+                    ]);
+                } else {
+                    Log::info('FCM send success', [
+                        'project_id' => $key['project_id'] ?? null,
+                        'status' => $response->status(),
+                        'topic' => data_get($data, 'message.topic'),
+                        'token_exists' => !empty(data_get($data, 'message.token')),
+                        'type' => data_get($data, 'message.data.type'),
+                    ]);
+                }
+
+                return $response;
             } catch (\Exception $exception) {
+                Log::error('FCM send exception', [
+                    'project_id' => $key['project_id'] ?? null,
+                    'message' => $exception->getMessage(),
+                ]);
                 return false;
             }
         }
+        Log::error('FCM send failed: missing project_id in push_notification_service_file_content');
         return false;
     }
 
     public static function getAccessToken($key): String
     {
+        if (empty($key['client_email']) || empty($key['private_key'])) {
+            Log::error('FCM access token failed: incomplete service account key', [
+                'has_client_email' => !empty($key['client_email']),
+                'has_private_key' => !empty($key['private_key']),
+            ]);
+            return '';
+        }
+
         $jwtToken = [
             'iss' => $key['client_email'],
             'scope' => 'https://www.googleapis.com/auth/firebase.messaging',
@@ -368,13 +412,23 @@ class Helpers
         $jwtHeader = base64_encode(json_encode(['alg' => 'RS256', 'typ' => 'JWT']));
         $jwtPayload = base64_encode(json_encode($jwtToken));
         $unsignedJwt = $jwtHeader . '.' . $jwtPayload;
-        openssl_sign($unsignedJwt, $signature, $key['private_key'], OPENSSL_ALGO_SHA256);
+        if (!openssl_sign($unsignedJwt, $signature, $key['private_key'], OPENSSL_ALGO_SHA256)) {
+            Log::error('FCM access token failed: openssl_sign failed');
+            return '';
+        }
         $jwt = $unsignedJwt . '.' . base64_encode($signature);
 
         $response = Http::asForm()->withoutVerifying()->post('https://oauth2.googleapis.com/token', [
             'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
             'assertion' => $jwt,
         ]);
+        if (!$response->successful()) {
+            Log::error('FCM access token failed: oauth request failed', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+            return '';
+        }
         return $response->json('access_token');
     }
 

@@ -77,7 +77,8 @@
 <script src="{{asset('public/assets/admin')}}/js/theme.min.js"></script>
 <script src="{{asset('public/assets/admin')}}/js/sweet_alert.js"></script>
 <script src="{{asset('public/assets/admin')}}/js/toastr.js"></script>
-<script src="{{asset('public/assets/admin/js/firebase.min.js')}}"></script>
+<script src="https://www.gstatic.com/firebasejs/8.3.2/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.3.2/firebase-messaging.js"></script>
 
 {!! Toastr::message() !!}
 
