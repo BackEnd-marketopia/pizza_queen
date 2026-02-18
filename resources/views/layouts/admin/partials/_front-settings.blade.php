@@ -36,9 +36,9 @@
                             <input type="radio" class="custom-checkbox-card-input" name="layoutSkinsRadio"
                                    id="layoutSkinsRadio1" checked value="default">
                             <label class="custom-checkbox-card-label" for="layoutSkinsRadio1">
-                                <img class="custom-checkbox-card-img"
-                                     src="{{asset('public/assets/admin')}}"
-                                     alt="Image Description">
+                                  <img class="custom-checkbox-card-img"
+                                      src="{{asset('public/assets/admin/img/placeholder.png')}}"
+                                      alt="Image Description">
                             </label>
                             <span class="custom-checkbox-card-text">Default</span>
                         </div>
@@ -53,9 +53,9 @@
                             <input type="radio" class="custom-checkbox-card-input" name="layoutSkinsRadio"
                                    id="layoutSkinsRadio2" value="navbar-dark">
                             <label class="custom-checkbox-card-label" for="layoutSkinsRadio2">
-                                <img class="custom-checkbox-card-img"
-                                     src="{{asset('public/assets/admin')}}"
-                                     alt="Image Description">
+                                  <img class="custom-checkbox-card-img"
+                                      src="{{asset('public/assets/admin/img/placeholder.png')}}"
+                                      alt="Image Description">
                             </label>
                             <span class="custom-checkbox-card-text">Dark</span>
                         </div>
@@ -70,9 +70,9 @@
                             <input type="radio" class="custom-checkbox-card-input" name="layoutSkinsRadio"
                                    id="layoutSkinsRadio3" value="navbar-light">
                             <label class="custom-checkbox-card-label" for="layoutSkinsRadio3">
-                                <img class="custom-checkbox-card-img"
-                                     src="{{asset('public/assets/admin')}}"
-                                     alt="Image Description">
+                                  <img class="custom-checkbox-card-img"
+                                      src="{{asset('public/assets/admin/img/placeholder.png')}}"
+                                      alt="Image Description">
                             </label>
                             <span class="custom-checkbox-card-text">Light</span>
                         </div>
@@ -93,9 +93,9 @@
                             <input type="radio" class="custom-checkbox-card-input" name="sidebarLayoutOptions"
                                    id="sidebarLayoutOptions1" checked value="default">
                             <label class="custom-checkbox-card-label" for="sidebarLayoutOptions1">
-                                <img class="custom-checkbox-card-img"
-                                     src="{{asset('public/assets/admin')}}"
-                                     alt="Image Description">
+                                  <img class="custom-checkbox-card-img"
+                                      src="{{asset('public/assets/admin/img/placeholder.png')}}"
+                                      alt="Image Description">
                             </label>
                             <span class="custom-checkbox-card-text">Default</span>
                         </div>
@@ -110,9 +110,9 @@
                             <input type="radio" class="custom-checkbox-card-input" name="sidebarLayoutOptions"
                                    id="sidebarLayoutOptions2" value="navbar-vertical-aside-compact-mode">
                             <label class="custom-checkbox-card-label" for="sidebarLayoutOptions2">
-                                <img class="custom-checkbox-card-img"
-                                     src="{{asset('public/assets/admin')}}"
-                                     alt="Image Description">
+                                  <img class="custom-checkbox-card-img"
+                                      src="{{asset('public/assets/admin/img/placeholder.png')}}"
+                                      alt="Image Description">
                             </label>
                             <span class="custom-checkbox-card-text">Compact</span>
                         </div>
@@ -127,9 +127,9 @@
                             <input type="radio" class="custom-checkbox-card-input" name="sidebarLayoutOptions"
                                    id="sidebarLayoutOptions3" value="navbar-vertical-aside-mini-mode">
                             <label class="custom-checkbox-card-label" for="sidebarLayoutOptions3">
-                                <img class="custom-checkbox-card-img"
-                                     src="{{asset('public/assets/admin')}}"
-                                     alt="Image Description">
+                                  <img class="custom-checkbox-card-img"
+                                      src="{{asset('public/assets/admin/img/placeholder.png')}}"
+                                      alt="Image Description">
                             </label>
                             <span class="custom-checkbox-card-text">Mini</span>
                         </div>
@@ -150,9 +150,9 @@
                             <input type="radio" class="custom-checkbox-card-input" name="headerLayoutOptions"
                                    id="headerLayoutOptions1" value="single">
                             <label class="custom-checkbox-card-label" for="headerLayoutOptions1">
-                                <img class="custom-checkbox-card-img"
-                                     src="{{asset('public/assets/admin')}}"
-                                     alt="Image Description">
+                                  <img class="custom-checkbox-card-img"
+                                      src="{{asset('public/assets/admin/img/placeholder.png')}}"
+                                      alt="Image Description">
                             </label>
                             <span class="custom-checkbox-card-text">Default (Fluid)</span>
                         </div>
@@ -167,9 +167,9 @@
                             <input type="radio" class="custom-checkbox-card-input" name="headerLayoutOptions"
                                    id="headerLayoutOptions2" value="single-container">
                             <label class="custom-checkbox-card-label" for="headerLayoutOptions2">
-                                <img class="custom-checkbox-card-img"
-                                     src="{{asset('public/assets/admin')}}"
-                                     alt="Image Description">
+                                  <img class="custom-checkbox-card-img"
+                                      src="{{asset('public/assets/admin/img/placeholder.png')}}"
+                                      alt="Image Description">
                             </label>
                             <span class="custom-checkbox-card-text">Default (Container)</span>
                         </div>
@@ -184,9 +184,9 @@
                             <input type="radio" class="custom-checkbox-card-input" name="headerLayoutOptions"
                                    id="headerLayoutOptions3" value="double">
                             <label class="custom-checkbox-card-label" for="headerLayoutOptions3">
-                                <img class="custom-checkbox-card-img"
-                                     src="{{asset('public/assets/admin')}}"
-                                     alt="Image Description">
+                                  <img class="custom-checkbox-card-img"
+                                      src="{{asset('public/assets/admin/img/placeholder.png')}}"
+                                      alt="Image Description">
                             </label>
                             <span class="custom-checkbox-card-text">Double line (Fluid)</span>
                         </div>
@@ -201,9 +201,9 @@
                             <input type="radio" class="custom-checkbox-card-input" name="headerLayoutOptions"
                                    id="headerLayoutOptions4" value="double-container">
                             <label class="custom-checkbox-card-label" for="headerLayoutOptions4">
-                                <img class="custom-checkbox-card-img"
-                                     src="{{asset('public/assets/admin')}}"
-                                     alt="Image Description">
+                                  <img class="custom-checkbox-card-img"
+                                      src="{{asset('public/assets/admin/img/placeholder.png')}}"
+                                      alt="Image Description">
                             </label>
                             <span class="custom-checkbox-card-text">Double line (Container)</span>
                         </div>
