@@ -2822,4 +2822,8 @@
   'Product Taxes' => 'Product Taxes',
   'First Order with Coupon' => 'First Order with Coupon',
   'Coupon Code' => 'Coupon Code',
+  'schedule' => 'Schedule',
+  'Message successfully sent' => 'Message successfully sent',
+  'successfully_removed' => 'Successfully removed',
+  'Role updated successfully!' => 'Role updated successfully!',
 );
