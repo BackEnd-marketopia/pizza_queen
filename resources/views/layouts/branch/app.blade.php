@@ -235,17 +235,20 @@
         @php($admin_order_notification_type = \App\CentralLogics\Helpers::get_business_settings('admin_order_notification_type'))
 
         @if($admin_order_notification)
+            let orderPollingStarted = false;
 
-            @if($admin_order_notification_type == 'manual')
-                console.log('manual')
+            function startOrderPolling() {
+                if (orderPollingStarted) {
+                    return;
+                }
+
+                orderPollingStarted = true;
                 setInterval(function () {
                     $.get({
                         url: '{{route('branch.get-restaurant-data')}}',
                         dataType: 'json',
                         success: function (response) {
                             let data = response.data;
-                            new_order_type = data.type;
-                            console.log(data)
                             if (data.new_order > 0) {
                                 playAudio();
                                 $('#popup-modal').appendTo("body").modal('show');
@@ -253,6 +256,11 @@
                         },
                     });
                 }, 10000);
+            }
+
+            @if($admin_order_notification_type == 'manual')
+                console.log('manual')
+                startOrderPolling();
             @endif
 
             @if($admin_order_notification_type == 'firebase')
@@ -279,21 +287,7 @@
 
                     fallbackPollingStarted = true;
                     console.warn('FCM fallback polling started');
-
-                    setInterval(function () {
-                        $.get({
-                            url: '{{route('branch.get-restaurant-data')}}',
-                            dataType: 'json',
-                            success: function (response) {
-                                let data = response.data;
-                                new_order_type = data.type;
-                                if (data.new_order > 0) {
-                                    playAudio();
-                                    $('#popup-modal').appendTo("body").modal('show');
-                                }
-                            },
-                        });
-                    }, 10000);
+                    startOrderPolling();
                 }
 
                 function resolveToken(registration) {
@@ -378,6 +372,7 @@
                 });
 
                 startFCM();
+                startOrderPolling();
                 setInterval(function () {
                     startFCM(true);
                 }, 120000);
