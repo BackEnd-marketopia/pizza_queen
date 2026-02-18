@@ -612,6 +612,16 @@
         firebase.initializeApp(firebaseConfig);
         const messaging = firebase.messaging();
 
+        function resolveToken(registration) {
+            const withRegistration = registration
+                ? messaging.getToken({serviceWorkerRegistration: registration})
+                : Promise.reject(new Error('Service worker registration is missing'));
+
+            return withRegistration.catch(function () {
+                return messaging.getToken();
+            });
+        }
+
         function startFCM() {
             let registrationPromise = Promise.resolve(null);
             if ('serviceWorker' in navigator) {
@@ -625,7 +635,7 @@
                     }
 
                     if (Notification.permission === 'granted') {
-                        return messaging.getToken({serviceWorkerRegistration: registration});
+                        return resolveToken(registration);
                     }
 
                     return Notification.requestPermission().then(function (permission) {
@@ -633,7 +643,7 @@
                             throw new Error('Notification permission is not granted');
                         }
 
-                        return messaging.getToken({serviceWorkerRegistration: registration});
+                        return resolveToken(registration);
                     });
                 })
                 .then(function (token) {
@@ -642,8 +652,9 @@
                     }
                     subscribeTokenToBackend(token, 'admin_message');
                 }).catch(function (error) {
+                    const errorMessage = error && (error.message || error.code) ? (error.message || error.code) : 'Unknown FCM token error';
                     console.error('Error getting permission or token:', error);
-                    toastr.error('FCM token registration failed. Check browser console.');
+                    toastr.error('FCM token registration failed: ' + errorMessage);
                 });
         }
 
@@ -667,8 +678,9 @@
                 }
                 console.log(`Subscribed to "${topic}"`);
             }).catch(error => {
+                const errorMessage = error && (error.message || error.code) ? (error.message || error.code) : 'Unknown subscription error';
                 console.error('Subscription error:', error);
-                toastr.error('FCM topic subscription failed. Check browser console.');
+                toastr.error('FCM topic subscription failed: ' + errorMessage);
             });
         }
 
