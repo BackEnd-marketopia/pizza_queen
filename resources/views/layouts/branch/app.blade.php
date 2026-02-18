@@ -271,21 +271,32 @@
                 const messaging = firebase.messaging();
 
                 function startFCM() {
-                    messaging
-                        .requestPermission()
-                        .then(function() {
-                            return messaging.getToken();
+                    let registrationPromise = Promise.resolve(null);
+                    if ('serviceWorker' in navigator) {
+                        registrationPromise = navigator.serviceWorker.register('{{ asset('firebase-messaging-sw.js') }}');
+                    }
+
+                    registrationPromise
+                        .then(function (registration) {
+                            return messaging.requestPermission().then(function () {
+                                return messaging.getToken({serviceWorkerRegistration: registration});
+                            });
                         })
                         .then(function(token) {
+                            if (!token) {
+                                throw new Error('FCM token is empty');
+                            }
                             subscribeTokenToBackend(token, 'branch-order-{{ auth('branch')->id() }}-message');
                         }).catch(function(error) {
                         console.error('Error getting permission or token:', error);
+                        toastr.error('FCM token registration failed. Check browser console.');
                     });
                 }
 
                 function subscribeTokenToBackend(token, topic) {
                     fetch('{{url('/')}}/subscribeToTopic', {
                         method: 'POST',
+                        credentials: 'same-origin',
                         headers: {
                             'Content-Type': 'application/json',
                             'X-CSRF-TOKEN': '{{ csrf_token() }}'
@@ -300,6 +311,7 @@
                         console.log(`Subscribed to "${topic}"`);
                     }).catch(error => {
                         console.error('Subscription error:', error);
+                        toastr.error('FCM topic subscription failed. Check browser console.');
                     });
                 }
 
