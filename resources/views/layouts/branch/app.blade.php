@@ -279,7 +279,19 @@
 
                     registrationPromise
                         .then(function (registration) {
-                            return messaging.requestPermission().then(function () {
+                            if (!('Notification' in window)) {
+                                throw new Error('Notification API is not supported in this browser');
+                            }
+
+                            if (Notification.permission === 'granted') {
+                                return messaging.getToken({serviceWorkerRegistration: registration});
+                            }
+
+                            return Notification.requestPermission().then(function (permission) {
+                                if (permission !== 'granted') {
+                                    throw new Error('Notification permission is not granted');
+                                }
+
                                 return messaging.getToken({serviceWorkerRegistration: registration});
                             });
                         })
