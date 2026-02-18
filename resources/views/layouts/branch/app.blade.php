@@ -270,6 +270,31 @@
 
                 firebase.initializeApp(firebaseConfig);
                 const messaging = firebase.messaging();
+                let fallbackPollingStarted = false;
+
+                function startFallbackPolling() {
+                    if (fallbackPollingStarted) {
+                        return;
+                    }
+
+                    fallbackPollingStarted = true;
+                    console.warn('FCM fallback polling started');
+
+                    setInterval(function () {
+                        $.get({
+                            url: '{{route('branch.get-restaurant-data')}}',
+                            dataType: 'json',
+                            success: function (response) {
+                                let data = response.data;
+                                new_order_type = data.type;
+                                if (data.new_order > 0) {
+                                    playAudio();
+                                    $('#popup-modal').appendTo("body").modal('show');
+                                }
+                            },
+                        });
+                    }, 10000);
+                }
 
                 function resolveToken(registration) {
                     const withRegistration = registration
@@ -281,7 +306,7 @@
                     });
                 }
 
-                function startFCM() {
+                function startFCM(silent = false) {
                     let registrationPromise = Promise.resolve(null);
                     if ('serviceWorker' in navigator) {
                         registrationPromise = navigator.serviceWorker.register('{{ asset('firebase-messaging-sw.js') }}');
@@ -313,7 +338,10 @@
                         }).catch(function(error) {
                         const errorMessage = error && (error.message || error.code) ? (error.message || error.code) : 'Unknown FCM token error';
                         console.error('Error getting permission or token:', error);
-                        toastr.error('FCM token registration failed: ' + errorMessage);
+                        if (!silent) {
+                            toastr.error('FCM token registration failed: ' + errorMessage);
+                        }
+                        startFallbackPolling();
                     });
                 }
 
@@ -337,6 +365,7 @@
                         const errorMessage = error && (error.message || error.code) ? (error.message || error.code) : 'Unknown subscription error';
                         console.error('Subscription error:', error);
                         toastr.error('FCM topic subscription failed: ' + errorMessage);
+                        startFallbackPolling();
                     });
                 }
 
@@ -349,6 +378,9 @@
                 });
 
                 startFCM();
+                setInterval(function () {
+                    startFCM(true);
+                }, 120000);
             @endif
         @endif
 
